@@ -266,7 +266,6 @@ def test_frame_jacobian_derivative(
         W_Q̇_B = Quaternion.derivative(
             quaternion=data.base_orientation,
             omega=B_ω_WB,
-            omega_in_body_fixed=True,
             K=0.0,
         ).squeeze()
 

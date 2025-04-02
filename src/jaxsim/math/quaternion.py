@@ -68,7 +68,6 @@ class Quaternion:
     def derivative(
         quaternion: jtp.Vector,
         omega: jtp.Vector,
-        omega_in_body_fixed: bool = False,
         K: float = 0.1,
     ) -> jtp.Vector:
         """
