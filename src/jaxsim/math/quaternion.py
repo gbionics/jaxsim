@@ -100,7 +100,7 @@ class Quaternion:
         )
 
         # Compute quaternion derivative via Einstein summation
-        q_outer = jnp.einsum("...i,...j->...ij", q, ω_quat)
+        q_outer = jnp.outer(q, ω_quat)
 
         Qd = jnp.sum(
             sign_matrix * q_outer[..., i_idx, j_idx],
