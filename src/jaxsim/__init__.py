@@ -16,7 +16,7 @@ def _jnp_options() -> None:
 
     # Enable by default 64-bit precision to get accurate physics.
     # Users can enforce 32-bit precision by setting the following variable to 0.
-    use_x64 = os.environ.get("JAX_ENABLE_X64", "1") != "0"
+    use_x64 = os.environ.get("JAX_ENABLE_X64", "0") != "0"
 
     # Notify the user if unsupported 64-bit precision was enforced on TPU.
     if (is_tpu or is_metal) and use_x64:
@@ -33,12 +33,6 @@ def _jnp_options() -> None:
     if use_x64:
         logging.info("Enabling JAX to use 64-bit precision")
         jax.config.update("jax_enable_x64", True)
-
-    # Warn about experimental usage of 32-bit precision.
-    else:
-        logging.warning(
-            "Using 32-bit precision in JaxSim is still experimental, please avoid to use variable step integrators."
-        )
 
 
 def _np_options() -> None:
