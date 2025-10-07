@@ -489,7 +489,7 @@ def test_coriolis_matrix(
         Ṁ = Ṁ.at[6:, 0:6].set(0)
 
     # Ensure that (Ṁ - 2C) is skew symmetric.
-    assert_allclose(Ṁ - C - C.T, 0.0)
+    assert_allclose(Ṁ - C - C.T, np.zeros_like(Ṁ))
 
 
 def test_model_fd_id_consistency(
@@ -559,7 +559,7 @@ def test_model_fd_id_consistency(
 
     # Check consistency between FD and ID
     assert_allclose(τ_id, references.joint_force_references(model=model))
-    assert_allclose(fB_id, 0.0)
+    assert_allclose(np.array(fB_id), np.zeros_like(fB_id), strict=False)
 
     if model.floating_base():
         # If we remove the base 6D force from the inputs, we should find it as output.
