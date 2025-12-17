@@ -69,7 +69,22 @@ class ModelDataWithVelocityRepresentation(JaxsimDataclass, abc.ABC):
 
         Yields:
             The same object with the new velocity representation.
+
+        Warning:
+            This context manager is deprecated. Use explicit `output_representation`
+            parameters on methods like `base_velocity()` and `generalized_velocity()`
+            instead.
         """
+
+        import warnings
+
+        warnings.warn(
+            "switch_velocity_representation() context manager is deprecated. "
+            "Use explicit input_representation or output_representation parameters instead, e.g., "
+            "data.base_velocity(output_representation=VelRepr.Inertial)",
+            DeprecationWarning,
+            stacklevel=2,
+        )
 
         original_representation = self.velocity_representation
 
