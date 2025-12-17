@@ -285,14 +285,23 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
         W_Q_B = W_Q_B / (norm + jnp.finfo(float).eps * (norm == 0))
         return W_Q_B
 
-    @property
-    def base_velocity(self) -> jtp.Vector:
+    def base_velocity(self, output_representation: VelRepr | None = None) -> jtp.Vector:
         """
         Get the base 6D velocity.
 
+        Args:
+            output_representation: The desired output representation.
+                If None, uses self.velocity_representation.
+
         Returns:
-            The base 6D velocity in the active representation.
+            The base 6D velocity in the specified representation.
         """
+
+        output_repr = (
+            output_representation
+            if output_representation is not None
+            else self.velocity_representation
+        )
 
         W_v_WB = jnp.concatenate(
             [self._base_linear_velocity, self._base_angular_velocity], axis=-1
@@ -303,7 +312,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
         return (
             JaxSimModelData.inertial_to_other_representation(
                 array=W_v_WB,
-                other_representation=self.velocity_representation,
+                other_representation=output_repr,
                 transform=W_H_B,
                 is_force=False,
             )
@@ -323,19 +332,29 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
 
         return self._base_transform, self.joint_positions
 
-    @property
-    def generalized_velocity(self) -> jtp.Vector:
+    def generalized_velocity(
+        self, output_representation: VelRepr | None = None
+    ) -> jtp.Vector:
         r"""
         Get the generalized velocity.
 
         :math:`\boldsymbol{\nu} = (\boldsymbol{v}_{W,B};\, \boldsymbol{\omega}_{W,B};\, \mathbf{s}) \in \mathbb{R}^{6+n}`
 
+        Args:
+            output_representation: The desired output representation.
+                If None, uses self.velocity_representation.
+
         Returns:
-            The generalized velocity in the active representation.
+            The generalized velocity in the specified representation.
         """
 
         return (
-            jnp.hstack([self.base_velocity, self.joint_velocities])
+            jnp.hstack(
+                [
+                    self.base_velocity(output_representation=output_representation),
+                    self.joint_velocities,
+                ]
+            )
             .squeeze()
             .astype(float)
         )
