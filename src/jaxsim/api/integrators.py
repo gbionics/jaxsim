@@ -19,56 +19,56 @@ def semi_implicit_euler_integration(
 ) -> JaxSimModelData:
     """Integrate the system state using the semi-implicit Euler method."""
 
-    with data.switch_velocity_representation(jaxsim.VelRepr.Inertial):
+    # Compute the system acceleration
+    W_v̇_WB, s̈, contact_state_derivative = js.ode.system_acceleration(
+        model=model,
+        data=data,
+        link_forces=link_forces,
+        joint_torques=joint_torques,
+        output_representation=jaxsim.VelRepr.Inertial,
+    )
 
-        # Compute the system acceleration
-        W_v̇_WB, s̈, contact_state_derivative = js.ode.system_acceleration(
-            model=model,
-            data=data,
-            link_forces=link_forces,
-            joint_torques=joint_torques,
-        )
+    dt = model.time_step
 
-        dt = model.time_step
+    # Compute the new generalized velocity.
+    new_generalized_acceleration = jnp.hstack([W_v̇_WB, s̈])
+    new_generalized_velocity = (
+        data.generalized_velocity(jaxsim.VelRepr.Inertial)
+        + dt * new_generalized_acceleration
+    )
 
-        # Compute the new generalized velocity.
-        new_generalized_acceleration = jnp.hstack([W_v̇_WB, s̈])
-        new_generalized_velocity = (
-            data.generalized_velocity + dt * new_generalized_acceleration
-        )
+    # Extract the new base and joint velocities.
+    W_v_B = new_generalized_velocity[0:6]
+    ṡ = new_generalized_velocity[6:]
 
-        # Extract the new base and joint velocities.
-        W_v_B = new_generalized_velocity[0:6]
-        ṡ = new_generalized_velocity[6:]
+    # Compute the new base position and orientation.
+    W_ω_WB = new_generalized_velocity[3:6]
 
-        # Compute the new base position and orientation.
-        W_ω_WB = new_generalized_velocity[3:6]
+    # To obtain the derivative of the base position, we need to subtract
+    # the skew-symmetric matrix of the base angular velocity times the base position.
+    # See: S. Traversaro and A. Saccon, “Multibody Dynamics Notation (Version 2), pg.9
+    W_ṗ_B = new_generalized_velocity[0:3] + Skew.wedge(W_ω_WB) @ data.base_position
 
-        # To obtain the derivative of the base position, we need to subtract
-        # the skew-symmetric matrix of the base angular velocity times the base position.
-        # See: S. Traversaro and A. Saccon, “Multibody Dynamics Notation (Version 2), pg.9
-        W_ṗ_B = new_generalized_velocity[0:3] + Skew.wedge(W_ω_WB) @ data.base_position
+    W_Q̇_B = jaxsim.math.Quaternion.derivative(
+        quaternion=data.base_orientation,
+        omega=W_ω_WB,
+        omega_in_body_fixed=False,
+    ).squeeze()
 
-        W_Q̇_B = jaxsim.math.Quaternion.derivative(
-            quaternion=data.base_orientation,
-            omega=W_ω_WB,
-            omega_in_body_fixed=False,
-        ).squeeze()
+    W_p_B = data.base_position + dt * W_ṗ_B
+    W_Q_B = data.base_orientation + dt * W_Q̇_B
 
-        W_p_B = data.base_position + dt * W_ṗ_B
-        W_Q_B = data.base_orientation + dt * W_Q̇_B
+    base_quaternion_norm = jaxsim.math.safe_norm(W_Q_B, axis=-1)
 
-        base_quaternion_norm = jaxsim.math.safe_norm(W_Q_B, axis=-1)
+    W_Q_B = W_Q_B / jnp.where(base_quaternion_norm == 0, 1.0, base_quaternion_norm)
 
-        W_Q_B = W_Q_B / jnp.where(base_quaternion_norm == 0, 1.0, base_quaternion_norm)
+    s = data.joint_positions + dt * ṡ
 
-        s = data.joint_positions + dt * ṡ
-
-        integrated_contact_state = jax.tree.map(
-            lambda x, x_dot: x + dt * x_dot,
-            data.contact_state,
-            contact_state_derivative,
-        )
+    integrated_contact_state = jax.tree.map(
+        lambda x, x_dot: x + dt * x_dot,
+        data.contact_state,
+        contact_state_derivative,
+    )
 
     # TODO: Avoid double replace, e.g. by computing cached value here
     data = dataclasses.replace(
@@ -100,16 +100,17 @@ def rk4_integration(
 
     def f(x) -> dict[str, jtp.Matrix]:
 
-        with data.switch_velocity_representation(jaxsim.VelRepr.Inertial):
+        data_ti = data.replace(
+            model=model, input_representation=jaxsim.VelRepr.Inertial, **x
+        )
 
-            data_ti = data.replace(model=model, **x)
-
-            return js.ode.system_dynamics(
-                model=model,
-                data=data_ti,
-                link_forces=link_forces,
-                joint_torques=joint_torques,
-            )
+        return js.ode.system_dynamics(
+            model=model,
+            data=data_ti,
+            link_forces=link_forces,
+            joint_torques=joint_torques,
+            output_representation=jaxsim.VelRepr.Inertial,
+        )
 
     base_quaternion_norm = jaxsim.math.safe_norm(data._base_quaternion, axis=-1)
     base_quaternion = data._base_quaternion / jnp.where(
@@ -191,21 +192,22 @@ def rk4fast_integration(
 
     def f(x) -> dict[str, jtp.Matrix]:
 
-        with data.switch_velocity_representation(jaxsim.VelRepr.Inertial):
+        data_ti = data.replace(
+            model=model, input_representation=jaxsim.VelRepr.Inertial, **x
+        )
 
-            data_ti = data.replace(model=model, **x)
+        W_v̇_WB, s̈ = js.model.forward_dynamics_aba(
+            model=model,
+            data=data_ti,
+            joint_forces=joint_torques,
+            link_forces=W_f_L_total,
+            output_representation=jaxsim.VelRepr.Inertial,
+        )
 
-            W_v̇_WB, s̈ = js.model.forward_dynamics_aba(
-                model=model,
-                data=data_ti,
-                joint_forces=joint_torques,
-                link_forces=W_f_L_total,
-            )
-
-            W_ṗ_B, W_Q̇_B, ṡ = js.ode.system_position_dynamics(
-                data=data,
-                baumgarte_quaternion_regularization=1.0,
-            )
+        W_ṗ_B, W_Q̇_B, ṡ = js.ode.system_position_dynamics(
+            data=data,
+            baumgarte_quaternion_regularization=1.0,
+        )
 
         return dict(
             base_position=W_ṗ_B,
