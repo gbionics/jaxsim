@@ -31,6 +31,8 @@ def build_kindyncomputations_from_jaxsim_model(
     data: js.data.JaxSimModelData,
     considered_joints: list[str] | None = None,
     removed_joint_positions: dict[str, npt.NDArray | float | int] | None = None,
+    *,
+    vel_repr: VelRepr | None = None,
 ) -> KinDynComputations:
     """
     Build a `KinDynComputations` from `JaxSimModel` and `JaxSimModelData`.
@@ -42,6 +44,8 @@ def build_kindyncomputations_from_jaxsim_model(
             The list of joint names to consider in the `KinDynComputations`.
         removed_joint_positions:
             A dictionary defining the positions of the removed joints (default is 0).
+        vel_repr:
+            The velocity representation to use in the `KinDynComputations`.
 
     Returns:
         The `KinDynComputations` built from the `JaxSimModel` and `JaxSimModelData`.
@@ -50,6 +54,8 @@ def build_kindyncomputations_from_jaxsim_model(
         Only `JaxSimModel` built from URDF files are supported.
 
     """
+
+    vel_repr = vel_repr if vel_repr is not None else data.velocity_representation
 
     if (
         isinstance(model.built_from, pathlib.Path)
@@ -89,7 +95,7 @@ def build_kindyncomputations_from_jaxsim_model(
     kin_dyn = KinDynComputations.build(
         urdf=model.built_from,
         considered_joints=considered_joints,
-        vel_repr=data.velocity_representation,
+        vel_repr=vel_repr,
         gravity=np.array([0, 0, model.gravity]),
         removed_joint_positions=removed_joint_positions,
     )
@@ -120,13 +126,12 @@ def store_jaxsim_data_in_kindyncomputations(
     if kin_dyn.dofs() != data.joint_positions.size:
         raise ValueError(data)
 
-    with data.switch_velocity_representation(kin_dyn.vel_repr):
-        kin_dyn.set_robot_state(
-            joint_positions=np.array(data.joint_positions),
-            joint_velocities=np.array(data.joint_velocities),
-            base_transform=np.array(data._base_transform),
-            base_velocity=np.array(data.base_velocity),
-        )
+    kin_dyn.set_robot_state(
+        joint_positions=np.array(data.joint_positions),
+        joint_velocities=np.array(data.joint_velocities),
+        base_transform=np.array(data._base_transform),
+        base_velocity=np.array(data.base_velocity(kin_dyn.vel_repr)),
+    )
 
     return kin_dyn
 
