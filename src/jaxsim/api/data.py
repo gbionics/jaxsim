@@ -432,12 +432,19 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
         base_angular_velocity: jtp.Vector | None = None,
         base_position: jtp.Vector | None = None,
         *,
+        input_representation: VelRepr | None = None,
         contact_state: dict[str, jtp.Array] | None = None,
         validate: bool = False,
     ) -> Self:
         """
         Replace the attributes of the `JaxSimModelData` object.
         """
+
+        input_representation = (
+            input_representation
+            if input_representation is not None
+            else self.velocity_representation
+        )
 
         if joint_positions is None:
             joint_positions = self.joint_positions
@@ -486,7 +493,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
 
             W_v_WB = JaxSimModelData.other_representation_to_inertial(
                 array=jnp.hstack([base_linear_velocity, base_angular_velocity]),
-                other_representation=self.velocity_representation,
+                other_representation=input_representation,
                 transform=base_transform,
                 is_force=False,
             ).astype(float)
