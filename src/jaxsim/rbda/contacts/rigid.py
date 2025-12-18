@@ -287,27 +287,29 @@ class RigidContacts(ContactModel):
 
         W_H_C = js.contact.transforms(model=model, data=data)
 
-        with (
-            references.switch_velocity_representation(VelRepr.Mixed),
-            data.switch_velocity_representation(VelRepr.Mixed),
-        ):
-            # Compute kin-dyn quantities used in the contact model.
-            BW_ν = data.generalized_velocity
+        # Compute kin-dyn quantities used in the contact model.
+        BW_ν = data.generalized_velocity(VelRepr.Mixed)
 
-            M_inv = js.model.free_floating_mass_matrix_inverse(model=model, data=data)
+        M_inv = js.model.free_floating_mass_matrix_inverse(
+            model=model, data=data, output_representation=VelRepr.Mixed
+        )
 
-            J_WC = js.contact.jacobian(model=model, data=data)
-            J̇_WC = js.contact.jacobian_derivative(model=model, data=data)
+        J_WC = js.contact.jacobian(
+            model=model, data=data, output_vel_repr=VelRepr.Mixed
+        )
+        J̇_WC = js.contact.jacobian_derivative(
+            model=model, data=data, output_vel_repr=VelRepr.Mixed
+        )
 
-            # Compute the generalized free acceleration.
-            BW_ν̇_free = jnp.hstack(
-                js.model.forward_dynamics_aba(
-                    model=model,
-                    data=data,
-                    link_forces=references.link_forces(model=model, data=data),
-                    joint_forces=references.joint_force_references(model=model),
-                )
+        # Compute the generalized free acceleration.
+        BW_ν̇_free = jnp.hstack(
+            js.model.forward_dynamics_aba(
+                model=model,
+                data=data,
+                link_forces=references.link_forces(model=model, data=data),
+                joint_forces=references.joint_force_references(model=model),
             )
+        )
 
         # Compute the free linear acceleration of the collidable points.
         # Since we use doubly-mixed jacobian, this corresponds to W_p̈_C.
@@ -409,28 +411,29 @@ class RigidContacts(ContactModel):
             in_axes=(0, 0, None),
         )(W_p_C, jnp.zeros_like(W_p_C), model.terrain)
 
-        with data.switch_velocity_representation(VelRepr.Mixed):
-            J_WC = js.contact.jacobian(model, data)[
-                indices_of_enabled_collidable_points
-            ]
-            M = js.model.free_floating_mass_matrix(model, data)
-            BW_ν_pre_impact = data.generalized_velocity
+        J_WC = js.contact.jacobian(model, data, input_representation=VelRepr.Mixed)[
+            indices_of_enabled_collidable_points
+        ]
+        M = js.model.free_floating_mass_matrix(
+            model, data, output_representation=VelRepr.Mixed
+        )
+        BW_ν_pre_impact = data.generalized_velocity(VelRepr.Mixed)
 
-            # Compute the impact velocity.
-            # It may be discontinuous in case new contacts are made.
-            BW_ν_post_impact = RigidContacts.compute_impact_velocity(
-                generalized_velocity=BW_ν_pre_impact,
-                inactive_collidable_points=(δ <= 0),
-                M=M,
-                J_WC=J_WC,
-            )
+        # Compute the impact velocity.
+        # It may be discontinuous in case new contacts are made.
+        BW_ν_post_impact = RigidContacts.compute_impact_velocity(
+            generalized_velocity=BW_ν_pre_impact,
+            inactive_collidable_points=(δ <= 0),
+            M=M,
+            J_WC=J_WC,
+        )
 
-            BW_ν_post_impact_inertial = data.other_representation_to_inertial(
-                array=BW_ν_post_impact[0:6],
-                other_representation=VelRepr.Mixed,
-                transform=data._base_transform.at[0:3, 0:3].set(jnp.eye(3)),
-                is_force=False,
-            )
+        BW_ν_post_impact_inertial = data.other_representation_to_inertial(
+            array=BW_ν_post_impact[0:6],
+            other_representation=VelRepr.Mixed,
+            transform=data._base_transform.at[0:3, 0:3].set(jnp.eye(3)),
+            is_force=False,
+        )
 
         # Reset the generalized velocity.
         data = dataclasses.replace(
