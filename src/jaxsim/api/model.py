@@ -922,11 +922,12 @@ def link_spatial_inertia_matrices(model: JaxSimModel) -> jtp.Array:
 # ==============================
 
 
-@functools.partial(jax.jit, static_argnames=["output_vel_repr"])
+@functools.partial(jax.jit, static_argnames=["input_representation", "output_vel_repr"])
 def generalized_free_floating_jacobian(
     model: JaxSimModel,
     data: js.data.JaxSimModelData,
     *,
+    input_representation: VelRepr | None = None,
     output_vel_repr: VelRepr | None = None,
 ) -> jtp.Matrix:
     """
@@ -935,6 +936,8 @@ def generalized_free_floating_jacobian(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        input_representation:
+            The input velocity representation of the free-floating jacobians.
         output_vel_repr:
             The output velocity representation of the free-floating jacobians.
 
@@ -947,9 +950,14 @@ def generalized_free_floating_jacobian(
         flattened 6D forces of the links, are useful to compute the `J.T @ f`
         product of the multi-body EoM.
     """
+    input_representation = (
+        input_representation
+        if input_representation is not None
+        else data.velocity_representation
+    )
 
     output_vel_repr = (
-        output_vel_repr if output_vel_repr is not None else data.velocity_representation
+        output_vel_repr if output_vel_repr is not None else input_representation
     )
 
     # Compute the doubly-left free-floating full jacobian.
@@ -962,7 +970,7 @@ def generalized_free_floating_jacobian(
     # Update the input velocity representation such that v_WL = J_WL_I @ I_ν
     # ======================================================================
 
-    match data.velocity_representation:
+    match input_representation:
         case VelRepr.Inertial:
             W_H_B = data._base_transform
             B_X_W = Adjoint.from_transform(transform=W_H_B, inverse=True)
@@ -1045,11 +1053,12 @@ def generalized_free_floating_jacobian(
     return O_J_WL_I
 
 
-@functools.partial(jax.jit, static_argnames=["output_vel_repr"])
+@functools.partial(jax.jit, static_argnames=["input_representation", "output_vel_repr"])
 def generalized_free_floating_jacobian_derivative(
     model: JaxSimModel,
     data: js.data.JaxSimModelData,
     *,
+    input_representation: VelRepr | None = None,
     output_vel_repr: VelRepr | None = None,
 ) -> jtp.Matrix:
     """
@@ -1058,6 +1067,8 @@ def generalized_free_floating_jacobian_derivative(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        input_representation:
+            The input velocity representation of the free-floating jacobian derivatives.
         output_vel_repr:
             The output velocity representation of the free-floating jacobian derivatives.
 
@@ -1066,8 +1077,14 @@ def generalized_free_floating_jacobian_derivative(
         jacobian derivatives of the links. The first axis is the link index.
     """
 
+    input_representation = (
+        input_representation
+        if input_representation is not None
+        else data.velocity_representation
+    )
+
     output_vel_repr = (
-        output_vel_repr if output_vel_repr is not None else data.velocity_representation
+        output_vel_repr if output_vel_repr is not None else input_representation
     )
 
     # Compute the derivative of the doubly-left free-floating full jacobian.
@@ -1107,11 +1124,11 @@ def generalized_free_floating_jacobian_derivative(
     In = jnp.eye(model.dofs())
     On = jnp.zeros(shape=(model.dofs(), model.dofs()))
 
-    match data.velocity_representation:
+    match input_representation:
         case VelRepr.Inertial:
             B_X_W = jaxsim.math.Adjoint.from_transform(transform=W_H_B, inverse=True)
 
-            W_v_WB = data.base_velocity
+            W_v_WB = data.base_velocity(input_representation)
             B_Ẋ_W = -B_X_W @ jaxsim.math.Cross.vx(W_v_WB)
 
             # Compute the operator to change the representation of ν, and its
@@ -1135,7 +1152,7 @@ def generalized_free_floating_jacobian_derivative(
             BW_H_B = W_H_B.at[0:3, 3].set(jnp.zeros(3))
             B_X_BW = jaxsim.math.Adjoint.from_transform(transform=BW_H_B, inverse=True)
 
-            BW_v_WB = data.base_velocity
+            BW_v_WB = data.base_velocity(input_representation)
             BW_v_W_BW = BW_v_WB.at[3:6].set(jnp.zeros(3))
 
             BW_v_BW_B = BW_v_WB - BW_v_W_BW
@@ -1147,7 +1164,7 @@ def generalized_free_floating_jacobian_derivative(
             Ṫ = jax.scipy.linalg.block_diag(B_Ẋ_BW, On)
 
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(input_representation)
 
     # ======================================================
     # Compute quantities to adjust the output representation
@@ -1157,8 +1174,7 @@ def generalized_free_floating_jacobian_derivative(
         case VelRepr.Inertial:
             O_X_B = W_X_B = jaxsim.math.Adjoint.from_transform(transform=W_H_B)
 
-            with data.switch_velocity_representation(VelRepr.Body):
-                B_v_WB = data.base_velocity
+            B_v_WB = data.base_velocity(VelRepr.Body)
 
             O_Ẋ_B = W_Ẋ_B = W_X_B @ jaxsim.math.Cross.vx(B_v_WB)  # noqa: F841
 
@@ -1169,11 +1185,10 @@ def generalized_free_floating_jacobian_derivative(
 
             B_X_L = jaxsim.math.Adjoint.inverse(adjoint=L_X_B)
 
-            with data.switch_velocity_representation(VelRepr.Body):
-                B_v_WB = data.base_velocity
-                L_v_WL = jnp.einsum(
-                    "b6j,j->b6", L_X_B @ B_J_WL_B, data.generalized_velocity
-                )
+            B_v_WB = data.base_velocity(VelRepr.Body)
+            L_v_WL = jnp.einsum(
+                "b6j,j->b6", L_X_B @ B_J_WL_B, data.generalized_velocity(VelRepr.Body)
+            )
 
             O_Ẋ_B = L_Ẋ_B = -L_X_B @ jaxsim.math.Cross.vx(  # noqa: F841
                 jnp.einsum("bij,bj->bi", B_X_L, L_v_WL) - B_v_WB
@@ -1188,21 +1203,19 @@ def generalized_free_floating_jacobian_derivative(
 
             B_X_LW = jaxsim.math.Adjoint.inverse(adjoint=LW_X_B)
 
-            with data.switch_velocity_representation(VelRepr.Body):
-                B_v_WB = data.base_velocity
+            B_v_WB = data.base_velocity(output_representation=VelRepr.Body)
 
-            with data.switch_velocity_representation(VelRepr.Mixed):
-                BW_H_B = W_H_B.at[0:3, 3].set(jnp.zeros(3))
-                B_X_BW = Adjoint.from_transform(transform=BW_H_B, inverse=True)
-                LW_v_WL = jnp.einsum(
-                    "bij,bj->bi",
-                    LW_X_B,
-                    B_J_WL_B
-                    @ jax.scipy.linalg.block_diag(B_X_BW, jnp.eye(model.dofs()))
-                    @ data.generalized_velocity,
-                )
+            BW_H_B = W_H_B.at[0:3, 3].set(jnp.zeros(3))
+            B_X_BW = Adjoint.from_transform(transform=BW_H_B, inverse=True)
+            LW_v_WL = jnp.einsum(
+                "bij,bj->bi",
+                LW_X_B,
+                B_J_WL_B
+                @ jax.scipy.linalg.block_diag(B_X_BW, jnp.eye(model.dofs()))
+                @ data.generalized_velocity(output_representation=VelRepr.Mixed),
+            )
 
-                LW_v_W_LW = LW_v_WL.at[:, 3:6].set(jnp.zeros_like(LW_v_WL[:, 3:6]))
+            LW_v_W_LW = LW_v_WL.at[:, 3:6].set(jnp.zeros_like(LW_v_WL[:, 3:6]))
 
             LW_v_LW_L = LW_v_WL - LW_v_W_LW
             LW_v_B_LW = LW_v_WL - jnp.einsum("bij,j->bi", LW_X_B, B_v_WB) - LW_v_LW_L
@@ -1266,7 +1279,7 @@ def forward_dynamics(
     )
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def forward_dynamics_aba(
     model: JaxSimModel,
@@ -1274,6 +1287,7 @@ def forward_dynamics_aba(
     *,
     joint_forces: jtp.VectorLike | None = None,
     link_forces: jtp.MatrixLike | None = None,
+    output_representation: VelRepr | None = None,
 ) -> tuple[jtp.Vector, jtp.Vector]:
     """
     Compute the forward dynamics of the model with the ABA algorithm.
@@ -1286,12 +1300,20 @@ def forward_dynamics_aba(
         link_forces:
             The link 6D forces to consider as a matrix of shape `(nL, 6)`.
             The frame in which they are expressed must be `data.velocity_representation`.
+        output_representation:
+            The desired output velocity representation of the free-floating acceleration.
 
     Returns:
         A tuple containing the 6D acceleration in the active representation of the
         base link and the joint accelerations resulting from the application of the
         considered joint forces and external forces.
     """
+
+    output_representation = (
+        output_representation
+        if output_representation is not None
+        else data.velocity_representation
+    )
 
     # ============
     # Prepare data
@@ -1321,12 +1343,11 @@ def forward_dynamics_aba(
     )
 
     # Extract the state in inertial-fixed representation.
-    with data.switch_velocity_representation(VelRepr.Inertial):
-        W_p_B = data.base_position
-        W_v_WB = data.base_velocity
-        W_Q_B = data.base_orientation
-        s = data.joint_positions
-        ṡ = data.joint_velocities
+    W_p_B = data.base_position
+    W_v_WB = data.base_velocity(VelRepr.Inertial)
+    W_Q_B = data.base_orientation
+    s = data.joint_positions
+    ṡ = data.joint_velocities
 
     # Extract the inputs in inertial-fixed representation.
     W_f_L = references._link_forces
@@ -1366,7 +1387,7 @@ def forward_dynamics_aba(
         C_X_W = Adjoint.from_transform(transform=W_H_C, inverse=True)
         return C_X_W @ (W_v̇_WB - Cross.vx(W_v_WC) @ W_v_WB)
 
-    match data.velocity_representation:
+    match output_representation:
         case VelRepr.Inertial:
             # In this case C=W
             W_H_C = W_H_W = jnp.eye(4)  # noqa: F841
@@ -1381,11 +1402,11 @@ def forward_dynamics_aba(
             # In this case C=B[W]
             W_H_B = data._base_transform
             W_H_C = W_H_BW = W_H_B.at[0:3, 0:3].set(jnp.eye(3))  # noqa: F841
-            W_ṗ_B = data.base_velocity[0:3]
+            W_ṗ_B = data.base_velocity(output_representation)[0:3]
             W_v_WC = W_v_W_BW = jnp.zeros(6).at[0:3].set(W_ṗ_B)  # noqa: F841
 
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(output_representation)
 
     # We need to convert the derivative of the base velocity to the active
     # representation. In Mixed representation, this conversion is not a plain
@@ -1553,10 +1574,13 @@ def _transform_M_block(M_body: jtp.Matrix, X: jtp.Matrix) -> jtp.Matrix:
     return jnp.concatenate([top, bottom], axis=0)
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def free_floating_mass_matrix(
-    model: JaxSimModel, data: js.data.JaxSimModelData
+    model: JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Matrix:
     """
     Compute the free-floating mass matrix of the model with the CRBA algorithm.
@@ -1564,17 +1588,25 @@ def free_floating_mass_matrix(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The output velocity representation of the mass matrix.
 
     Returns:
         The free-floating mass matrix of the model.
     """
+
+    output_representation = (
+        data.velocity_representation
+        if output_representation is None
+        else output_representation
+    )
 
     M_body = jaxsim.rbda.crba(
         model=model,
         joint_positions=data.joint_positions,
     )
 
-    match data.velocity_representation:
+    match output_representation:
         case VelRepr.Body:
             return M_body
 
@@ -1589,13 +1621,16 @@ def free_floating_mass_matrix(
 
             return _transform_M_block(M_body, B_X_BW)
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(output_representation)
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def free_floating_mass_matrix_inverse(
-    model: JaxSimModel, data: js.data.JaxSimModelData
+    model: JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Matrix:
     """
     Compute the inverse of the free-floating mass matrix of the model
@@ -1604,10 +1639,18 @@ def free_floating_mass_matrix_inverse(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The output velocity representation of the inverse mass matrix.
 
     Returns:
         The inverse of the free-floating mass matrix of the model.
     """
+    output_representation = (
+        data.velocity_representation
+        if output_representation is None
+        else output_representation
+    )
+
     M_inv_body = jaxsim.rbda.mass_inverse(
         model=model,
         base_position=data.base_position,
@@ -1615,7 +1658,7 @@ def free_floating_mass_matrix_inverse(
         joint_positions=data.joint_positions,
     )
 
-    match data.velocity_representation:
+    match output_representation:
         case VelRepr.Body:
             return M_inv_body
         case VelRepr.Inertial:
@@ -1628,13 +1671,16 @@ def free_floating_mass_matrix_inverse(
 
             return _transform_M_block(M_inv_body, BW_X_B.T)
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(output_representation)
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def free_floating_coriolis_matrix(
-    model: JaxSimModel, data: js.data.JaxSimModelData
+    model: JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Matrix:
     """
     Compute the free-floating Coriolis matrix of the model.
@@ -1642,6 +1688,8 @@ def free_floating_coriolis_matrix(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The output velocity representation of the Coriolis matrix.
 
     Returns:
         The free-floating Coriolis matrix of the model.
@@ -1652,17 +1700,26 @@ def free_floating_coriolis_matrix(
         the Coriolis matrix may be much slower than other quantities.
     """
 
+    output_representation = (
+        data.velocity_representation
+        if output_representation is None
+        else output_representation
+    )
+
     # We perform all the calculation in body-fixed.
     # The Coriolis matrix computed in this representation is converted later
     # to the active representation stored in data.
-    with data.switch_velocity_representation(VelRepr.Body):
-        B_ν = data.generalized_velocity
+    B_ν = data.generalized_velocity(VelRepr.Body)
 
-        # Doubly-left free-floating Jacobian.
-        L_J_WL_B = generalized_free_floating_jacobian(model=model, data=data)
+    # Doubly-left free-floating Jacobian.
+    L_J_WL_B = generalized_free_floating_jacobian(
+        model=model, data=data, input_representation=VelRepr.Body
+    )
 
-        # Doubly-left free-floating Jacobian derivative.
-        L_J̇_WL_B = generalized_free_floating_jacobian_derivative(model=model, data=data)
+    # Doubly-left free-floating Jacobian derivative.
+    L_J̇_WL_B = generalized_free_floating_jacobian_derivative(
+        model=model, data=data, input_representation=VelRepr.Body
+    )
 
     L_M_L = link_spatial_inertia_matrices(model=model)
 
@@ -1694,7 +1751,7 @@ def free_floating_coriolis_matrix(
 
     # Adjust the representation of the Coriolis matrix.
     # Refer to https://github.com/traversaro/traversaro-phd-thesis, Section 3.6.
-    match data.velocity_representation:
+    match output_representation:
         case VelRepr.Body:
             return C_B
 
@@ -1704,14 +1761,14 @@ def free_floating_coriolis_matrix(
             B_X_W = jaxsim.math.Adjoint.from_transform(W_H_B, inverse=True)
             B_T_W = jax.scipy.linalg.block_diag(B_X_W, jnp.eye(n))
 
-            with data.switch_velocity_representation(VelRepr.Inertial):
-                W_v_WB = data.base_velocity
-                B_Ẋ_W = -B_X_W @ jaxsim.math.Cross.vx(W_v_WB)
+            W_v_WB = data.base_velocity(VelRepr.Inertial)
+            B_Ẋ_W = -B_X_W @ jaxsim.math.Cross.vx(W_v_WB)
 
             B_Ṫ_W = jax.scipy.linalg.block_diag(B_Ẋ_W, jnp.zeros(shape=(n, n)))
 
-            with data.switch_velocity_representation(VelRepr.Body):
-                M = free_floating_mass_matrix(model=model, data=data)
+            M = free_floating_mass_matrix(
+                model=model, data=data, output_representation=VelRepr.Body
+            )
 
             C = B_T_W.T @ (M @ B_Ṫ_W + C_B @ B_T_W)
 
@@ -1723,27 +1780,27 @@ def free_floating_coriolis_matrix(
             B_X_BW = jaxsim.math.Adjoint.from_transform(transform=BW_H_B, inverse=True)
             B_T_BW = jax.scipy.linalg.block_diag(B_X_BW, jnp.eye(n))
 
-            with data.switch_velocity_representation(VelRepr.Mixed):
-                BW_v_WB = data.base_velocity
-                BW_v_W_BW = BW_v_WB.at[3:6].set(jnp.zeros(3))
+            BW_v_WB = data.base_velocity(VelRepr.Mixed)
+            BW_v_W_BW = BW_v_WB.at[3:6].set(jnp.zeros(3))
 
             BW_v_BW_B = BW_v_WB - BW_v_W_BW
             B_Ẋ_BW = -B_X_BW @ jaxsim.math.Cross.vx(BW_v_BW_B)
 
             B_Ṫ_BW = jax.scipy.linalg.block_diag(B_Ẋ_BW, jnp.zeros(shape=(n, n)))
 
-            with data.switch_velocity_representation(VelRepr.Body):
-                M = free_floating_mass_matrix(model=model, data=data)
+            M = free_floating_mass_matrix(
+                model=model, data=data, output_representation=VelRepr.Body
+            )
 
             C = B_T_BW.T @ (M @ B_Ṫ_BW + C_B @ B_T_BW)
 
             return C
 
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(output_representation)
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def inverse_dynamics(
     model: JaxSimModel,
@@ -1752,6 +1809,7 @@ def inverse_dynamics(
     joint_accelerations: jtp.VectorLike | None = None,
     base_acceleration: jtp.VectorLike | None = None,
     link_forces: jtp.MatrixLike | None = None,
+    output_representation: VelRepr | None = None,
 ) -> tuple[jtp.Vector, jtp.Vector]:
     """
     Compute inverse dynamics with the RNEA algorithm.
@@ -1765,13 +1823,21 @@ def inverse_dynamics(
             The base acceleration to consider as a vector of shape `(6,)`.
         link_forces:
             The link 6D forces to consider as a matrix of shape `(nL, 6)`.
-            The frame in which they are expressed must be `data.velocity_representation`.
+            The frame in which they are expressed must be `output_representation`.
+        output_representation:
+            The desired output velocity representation of the base force.
 
     Returns:
         A tuple containing the 6D force in the active representation applied to the
         base to obtain the considered base acceleration, and the joint forces to apply
         to obtain the considered joint accelerations.
     """
+
+    output_representation = (
+        output_representation
+        if output_representation is not None
+        else data.velocity_representation
+    )
 
     # ============
     # Prepare data
@@ -1812,24 +1878,23 @@ def inverse_dynamics(
         # In Inertial and Body representations, the cross product is always zero.
         return W_X_C @ (C_v̇_WB + Cross.vx(C_v_WC) @ C_v_WB)
 
-    match data.velocity_representation:
+    match output_representation:
         case VelRepr.Inertial:
             W_H_C = W_H_W = jnp.eye(4)  # noqa: F841
             W_v_WC = W_v_WW = jnp.zeros(6)  # noqa: F841
 
         case VelRepr.Body:
             W_H_C = W_H_B = data._base_transform
-            with data.switch_velocity_representation(VelRepr.Inertial):
-                W_v_WC = W_v_WB = data.base_velocity
+            W_v_WC = W_v_WB = data.base_velocity(VelRepr.Inertial)
 
         case VelRepr.Mixed:
             W_H_B = data._base_transform
             W_H_C = W_H_BW = W_H_B.at[0:3, 0:3].set(jnp.eye(3))  # noqa: F841
-            W_ṗ_B = data.base_velocity[0:3]
+            W_ṗ_B = data.base_velocity(output_representation)[0:3]
             W_v_WC = W_v_W_BW = jnp.zeros(6).at[0:3].set(W_ṗ_B)  # noqa: F841
 
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(output_representation)
 
     # We need to convert the derivative of the base acceleration to the Inertial
     # representation. In Mixed representation, this conversion is not a plain
@@ -1837,7 +1902,7 @@ def inverse_dynamics(
     W_v̇_WB = to_inertial(
         C_v̇_WB=v̇_WB,
         W_H_C=W_H_C,
-        C_v_WB=data.base_velocity,
+        C_v_WB=data.base_velocity(output_representation),
         W_v_WC=W_v_WC,
     )
 
@@ -1846,16 +1911,15 @@ def inverse_dynamics(
         model=model,
         data=data,
         link_forces=f_L,
-        velocity_representation=data.velocity_representation,
+        velocity_representation=output_representation,
     )
 
     # Extract the state in inertial-fixed representation.
-    with data.switch_velocity_representation(VelRepr.Inertial):
-        W_p_B = data.base_position
-        W_v_WB = data.base_velocity
-        W_Q_B = data.base_quaternion
-        s = data.joint_positions
-        ṡ = data.joint_velocities
+    W_p_B = data.base_position
+    W_v_WB = data.base_velocity(VelRepr.Inertial)
+    W_Q_B = data.base_quaternion
+    s = data.joint_positions
+    ṡ = data.joint_velocities
 
     # Extract the inputs in inertial-fixed representation.
     W_f_L = references._link_forces
@@ -1886,7 +1950,7 @@ def inverse_dynamics(
     # Express W_f_B in the active representation.
     f_B = js.data.JaxSimModelData.inertial_to_other_representation(
         array=W_f_B,
-        other_representation=data.velocity_representation,
+        other_representation=output_representation,
         transform=data._base_transform,
         is_force=True,
     ).squeeze()
@@ -1897,7 +1961,10 @@ def inverse_dynamics(
 @jax.jit
 @js.common.named_scope
 def free_floating_gravity_forces(
-    model: JaxSimModel, data: js.data.JaxSimModelData
+    model: JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Vector:
     r"""
     Compute the free-floating gravity forces :math:`g(\mathbf{q})` of the model.
@@ -1905,15 +1972,23 @@ def free_floating_gravity_forces(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The output velocity representation of the gravity forces.
 
     Returns:
         The free-floating gravity forces of the model.
     """
 
+    output_representation = (
+        data.velocity_representation
+        if output_representation is None
+        else output_representation
+    )
+
     # Build a new state with zeroed velocities.
     data_rnea = js.data.JaxSimModelData.build(
         model=model,
-        velocity_representation=data.velocity_representation,
+        velocity_representation=output_representation,
         base_position=data.base_position,
         base_quaternion=data.base_quaternion,
         joint_positions=data.joint_positions,
@@ -1927,6 +2002,7 @@ def free_floating_gravity_forces(
             joint_accelerations=jnp.atleast_1d(jnp.zeros(model.dofs())),
             base_acceleration=jnp.zeros(6),
             link_forces=jnp.zeros(shape=(model.number_of_links(), 6)),
+            output_representation=output_representation,
         )
     ).astype(float)
 
@@ -1934,7 +2010,10 @@ def free_floating_gravity_forces(
 @jax.jit
 @js.common.named_scope
 def free_floating_bias_forces(
-    model: JaxSimModel, data: js.data.JaxSimModelData
+    model: JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Vector:
     r"""
     Compute the free-floating bias forces :math:`h(\mathbf{q}, \boldsymbol{\nu})`
@@ -1943,21 +2022,29 @@ def free_floating_bias_forces(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The output velocity representation of the bias forces.
 
     Returns:
         The free-floating bias forces of the model.
     """
 
+    output_representation = (
+        data.velocity_representation
+        if output_representation is None
+        else output_representation
+    )
+
     # Set the generalized position and generalized velocity.
     base_linear_velocity, base_angular_velocity = None, None
     if model.floating_base():
-        base_velocity = data.base_velocity
+        base_velocity = data.base_velocity(output_representation)
         base_linear_velocity = base_velocity[:3]
         base_angular_velocity = base_velocity[3:]
 
     data_rnea = js.data.JaxSimModelData.build(
         model=model,
-        velocity_representation=data.velocity_representation,
+        velocity_representation=output_representation,
         base_position=data.base_position,
         base_quaternion=data.base_quaternion,
         joint_positions=data.joint_positions,
@@ -1974,6 +2061,7 @@ def free_floating_bias_forces(
             joint_accelerations=jnp.atleast_1d(jnp.zeros(model.dofs())),
             base_acceleration=jnp.zeros(6),
             link_forces=jnp.zeros(shape=(model.number_of_links(), 6)),
+            output_representation=output_representation,
         )
     ).astype(float)
 
@@ -1983,10 +2071,13 @@ def free_floating_bias_forces(
 # ==========================
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def locked_spatial_inertia(
-    model: JaxSimModel, data: js.data.JaxSimModelData
+    model: JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Matrix:
     """
     Compute the locked 6D inertia matrix of the model.
@@ -1994,39 +2085,58 @@ def locked_spatial_inertia(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The output velocity representation of the locked inertia matrix.
 
     Returns:
         The locked 6D inertia matrix of the model.
     """
 
-    return total_momentum_jacobian(model=model, data=data)[:, 0:6]
+    output_representation = (
+        data.velocity_representation
+        if output_representation is None
+        else output_representation
+    )
+
+    return total_momentum_jacobian(
+        model=model, data=data, output_vel_repr=output_representation
+    )[:, 0:6]
 
 
 @jax.jit
 @js.common.named_scope
-def total_momentum(model: JaxSimModel, data: js.data.JaxSimModelData) -> jtp.Vector:
+def total_momentum(
+    model: JaxSimModel,
+    data: js.data.JaxSimModelData,
+    output_representation: VelRepr | None = None,
+) -> jtp.Vector:
     """
     Compute the total momentum of the model.
 
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The output velocity representation of the total momentum.
 
     Returns:
         The total momentum of the model in the active velocity representation.
     """
 
-    ν = data.generalized_velocity
-    Jh = total_momentum_jacobian(model=model, data=data)
+    ν = data.generalized_velocity(output_representation)
+    Jh = total_momentum_jacobian(
+        model=model, data=data, output_vel_repr=output_representation
+    )
 
     return Jh @ ν
 
 
-@functools.partial(jax.jit, static_argnames=["output_vel_repr"])
+@functools.partial(jax.jit, static_argnames=["input_representation", "output_vel_repr"])
 def total_momentum_jacobian(
     model: JaxSimModel,
     data: js.data.JaxSimModelData,
     *,
+    input_representation: VelRepr | None = None,
     output_vel_repr: VelRepr | None = None,
 ) -> jtp.Matrix:
     """
@@ -2035,23 +2145,33 @@ def total_momentum_jacobian(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        input_representation: The input velocity representation of the data.
         output_vel_repr: The output velocity representation of the jacobian.
 
     Returns:
         The jacobian of the total momentum of the model in the active representation.
     """
 
-    output_vel_repr = (
-        output_vel_repr if output_vel_repr is not None else data.velocity_representation
+    input_representation = (
+        data.velocity_representation
+        if input_representation is None
+        else input_representation
     )
 
-    if output_vel_repr is data.velocity_representation:
-        return free_floating_mass_matrix(model=model, data=data)[0:6]
+    output_vel_repr = (
+        output_vel_repr if output_vel_repr is not None else input_representation
+    )
 
-    with data.switch_velocity_representation(VelRepr.Body):
-        B_Jh_B = free_floating_mass_matrix(model=model, data=data)[0:6]
+    if output_vel_repr is input_representation:
+        return free_floating_mass_matrix(
+            model=model, data=data, output_representation=output_vel_repr
+        )[0:6]
 
-    match data.velocity_representation:
+    B_Jh_B = free_floating_mass_matrix(
+        model=model, data=data, output_representation=VelRepr.Body
+    )[0:6]
+
+    match input_representation:
         case VelRepr.Body:
             B_Jh = B_Jh_B
 
@@ -2065,7 +2185,7 @@ def total_momentum_jacobian(
             B_Jh = B_Jh_B @ jax.scipy.linalg.block_diag(B_X_BW, jnp.eye(model.dofs()))
 
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(input_representation)
 
     match output_vel_repr:
         case VelRepr.Body:
@@ -2091,21 +2211,30 @@ def total_momentum_jacobian(
 
 @jax.jit
 @js.common.named_scope
-def average_velocity(model: JaxSimModel, data: js.data.JaxSimModelData) -> jtp.Vector:
+def average_velocity(
+    model: JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
+) -> jtp.Vector:
     """
     Compute the average velocity of the model.
 
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The output velocity representation of the average velocity.
 
     Returns:
         The average velocity of the model computed in the base frame and expressed
         in the active representation.
     """
 
-    ν = data.generalized_velocity
-    J = average_velocity_jacobian(model=model, data=data)
+    ν = data.generalized_velocity(output_representation)
+    J = average_velocity_jacobian(
+        model=model, data=data, output_vel_repr=output_representation
+    )
 
     return J @ ν
 
@@ -2174,11 +2303,13 @@ def average_velocity_jacobian(
 # ========================
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def link_bias_accelerations(
     model: JaxSimModel,
     data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Vector:
     r"""
     Compute the bias accelerations of the links of the model.
@@ -2186,6 +2317,8 @@ def link_bias_accelerations(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The output velocity representation of the bias accelerations.
 
     Returns:
         The bias accelerations of the links of the model.
@@ -2195,6 +2328,12 @@ def link_bias_accelerations(
         the joint or base acceleration.
         It is often called :math:`\dot{J} \boldsymbol{\nu}`.
     """
+
+    output_representation = (
+        data.velocity_representation
+        if output_representation is None
+        else output_representation
+    )
 
     # ================================================
     # Compute the body-fixed zero base 6D acceleration
@@ -2223,33 +2362,28 @@ def link_bias_accelerations(
     # because the apparent acceleration W_v̇_WB is equal to the intrinsic acceleration
     # W_a_WB, and intrinsic accelerations can be expressed in different frames through
     # a simple C_X_W 6D transform.
-    match data.velocity_representation:
+    match output_representation:
         case VelRepr.Inertial:
             W_H_C = W_H_W = jnp.eye(4)  # noqa: F841
             W_v_WC = W_v_WW = jnp.zeros(6)  # noqa: F841
-            with data.switch_velocity_representation(VelRepr.Inertial):
-                C_v_WB = W_v_WB = data.base_velocity
+            C_v_WB = W_v_WB = data.base_velocity(VelRepr.Inertial)
 
         case VelRepr.Body:
             W_H_C = W_H_B
-            with data.switch_velocity_representation(VelRepr.Inertial):
-                W_v_WC = W_v_WB = data.base_velocity  # noqa: F841
-            with data.switch_velocity_representation(VelRepr.Body):
-                C_v_WB = B_v_WB = data.base_velocity
+            W_v_WC = W_v_WB = data.base_velocity(VelRepr.Inertial)  # noqa: F841
+            C_v_WB = B_v_WB = data.base_velocity(VelRepr.Body)
 
         case VelRepr.Mixed:
             W_H_BW = W_H_B.at[0:3, 0:3].set(jnp.eye(3))
             W_H_C = W_H_BW
-            with data.switch_velocity_representation(VelRepr.Mixed):
-                W_ṗ_B = data.base_velocity[0:3]
-                BW_v_W_BW = jnp.zeros(6).at[0:3].set(W_ṗ_B)
-                W_X_BW = jaxsim.math.Adjoint.from_transform(transform=W_H_BW)
-                W_v_WC = W_v_W_BW = W_X_BW @ BW_v_W_BW  # noqa: F841
-            with data.switch_velocity_representation(VelRepr.Mixed):
-                C_v_WB = BW_v_WB = data.base_velocity  # noqa: F841
+            W_ṗ_B = data.base_velocity(VelRepr.Mixed)[0:3]
+            BW_v_W_BW = jnp.zeros(6).at[0:3].set(W_ṗ_B)
+            W_X_BW = jaxsim.math.Adjoint.from_transform(transform=W_H_BW)
+            W_v_WC = W_v_W_BW = W_X_BW @ BW_v_W_BW  # noqa: F841
+            C_v_WB = BW_v_WB = data.base_velocity(VelRepr.Mixed)  # noqa: F841
 
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(output_representation)
 
     # Convert a zero 6D acceleration from the active representation to inertial-fixed.
     W_v̇_WB = other_representation_to_inertial(
@@ -2281,9 +2415,8 @@ def link_bias_accelerations(
     L_v_WL = jnp.zeros(shape=(model.number_of_links(), 6))
 
     # Store the base velocity.
-    with data.switch_velocity_representation(VelRepr.Body):
-        B_v_WB = data.base_velocity
-        L_v_WL = L_v_WL.at[0].set(B_v_WB)
+    B_v_WB = data.base_velocity(VelRepr.Body)
+    L_v_WL = L_v_WL.at[0].set(B_v_WB)
 
     # Get the joint velocities.
     ṡ = data.joint_velocities
@@ -2355,7 +2488,7 @@ def link_bias_accelerations(
         C_X_L = jaxsim.math.Adjoint.from_transform(transform=C_H_L)
         return C_X_L @ (L_v̇_WL + jaxsim.math.Cross.vx(L_v_CL) @ L_v_WL)
 
-    match data.velocity_representation:
+    match output_representation:
         case VelRepr.Body:
             C_H_L = L_H_L = jnp.stack(  # noqa: F841
                 [jnp.eye(4)] * model.number_of_links()
@@ -2377,7 +2510,7 @@ def link_bias_accelerations(
             )(L_v_WL)
 
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(output_representation)
 
     # Convert from body-fixed to the active representation.
     O_v̇_WL = jax.vmap(body_to_other_representation)(
@@ -2426,9 +2559,10 @@ def kinetic_energy(model: JaxSimModel, data: js.data.JaxSimModelData) -> jtp.Flo
         The kinetic energy of the model.
     """
 
-    with data.switch_velocity_representation(velocity_representation=VelRepr.Body):
-        B_ν = data.generalized_velocity
-        M_B = free_floating_mass_matrix(model=model, data=data)
+    B_ν = data.generalized_velocity(VelRepr.Body)
+    M_B = free_floating_mass_matrix(
+        model=model, data=data, output_representation=VelRepr.Body
+    )
 
     K = 0.5 * B_ν.T @ M_B @ B_ν
     return K.squeeze().astype(float)
@@ -2598,7 +2732,7 @@ def update_hw_parameters(
 # ==========
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def step(
     model: JaxSimModel,
@@ -2606,6 +2740,7 @@ def step(
     *,
     link_forces: jtp.MatrixLike | None = None,
     joint_force_references: jtp.VectorLike | None = None,
+    output_representation: VelRepr | None = None,
 ) -> js.data.JaxSimModelData:
     """
     Perform a simulation step.
@@ -2617,6 +2752,9 @@ def step(
         link_forces:
             The 6D forces to apply to the links expressed in same representation of data.
         joint_force_references: The joint force references to consider.
+        output_representation:
+            The output velocity representation of the data object after the step.
+            Defaults to the same representation of data.
 
     Returns:
         The new data of the model after the simulation step.
@@ -2626,6 +2764,12 @@ def step(
         it is recommended to use inertial-fixed velocity representation. This can be
         particularly useful for automatically differentiated logic.
     """
+
+    output_representation = (
+        data.velocity_representation
+        if output_representation is None
+        else output_representation
+    )
 
     # TODO: some contact models here may want to perform a dynamic filtering of
     # the enabled collidable points
@@ -2640,7 +2784,7 @@ def step(
     # Get the external forces in inertial-fixed representation.
     W_f_L_external = js.data.JaxSimModelData.other_representation_to_inertial(
         O_f_L_external,
-        other_representation=data.velocity_representation,
+        other_representation=output_representation,
         transform=data._link_transforms,
         is_force=True,
     )
