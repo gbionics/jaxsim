@@ -255,12 +255,13 @@ def transforms(model: js.model.JaxSimModel, data: js.data.JaxSimModelData) -> jt
     return jax.vmap(lambda W_H_Li, L_H_Ci: W_H_Li @ L_H_Ci)(W_H_L, L_H_C)
 
 
-@functools.partial(jax.jit, static_argnames=["output_vel_repr"])
+@functools.partial(jax.jit, static_argnames=["input_representation", "output_vel_repr"])
 @js.common.named_scope
 def jacobian(
     model: js.model.JaxSimModel,
     data: js.data.JaxSimModelData,
     *,
+    input_representation: VelRepr | None = None,
     output_vel_repr: VelRepr | None = None,
 ) -> jtp.Array:
     r"""
@@ -269,6 +270,8 @@ def jacobian(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        input_representation:
+            The input velocity representation of data.
         output_vel_repr:
             The output velocity representation of the free-floating jacobian.
 
@@ -283,8 +286,14 @@ def jacobian(
         rigidly attached to.
     """
 
+    input_representation = (
+        input_representation
+        if input_representation is not None
+        else data.velocity_representation
+    )
+
     output_vel_repr = (
-        output_vel_repr if output_vel_repr is not None else data.velocity_representation
+        output_vel_repr if output_vel_repr is not None else input_representation
     )
 
     # Get the indices of the enabled collidable points.
@@ -298,7 +307,10 @@ def jacobian(
 
     # Compute the Jacobians of all links.
     W_J_WL = js.model.generalized_free_floating_jacobian(
-        model=model, data=data, output_vel_repr=VelRepr.Inertial
+        model=model,
+        data=data,
+        input_representation=input_representation,
+        output_vel_repr=VelRepr.Inertial,
     )
 
     # Compute the contact Jacobian.
@@ -348,12 +360,13 @@ def jacobian(
     return O_J_WC
 
 
-@functools.partial(jax.jit, static_argnames=["output_vel_repr"])
+@functools.partial(jax.jit, static_argnames=["input_representation", "output_vel_repr"])
 @js.common.named_scope
 def jacobian_derivative(
     model: js.model.JaxSimModel,
     data: js.data.JaxSimModelData,
     *,
+    input_representation: VelRepr | None = None,
     output_vel_repr: VelRepr | None = None,
 ) -> jtp.Matrix:
     r"""
@@ -362,6 +375,8 @@ def jacobian_derivative(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        input_representation:
+            The input velocity representation of data.
         output_vel_repr:
             The output velocity representation of the free-floating jacobian derivative.
 
@@ -373,8 +388,14 @@ def jacobian_derivative(
         velocity representation.
     """
 
+    input_representation = (
+        input_representation
+        if input_representation is not None
+        else data.velocity_representation
+    )
+
     output_vel_repr = (
-        output_vel_repr if output_vel_repr is not None else data.velocity_representation
+        output_vel_repr if output_vel_repr is not None else input_representation
     )
 
     indices_of_enabled_collidable_points = (
@@ -412,7 +433,7 @@ def jacobian_derivative(
 
     # Compute the operator to change the representation of ν, and its
     # time derivative.
-    match data.velocity_representation:
+    match input_representation:
         case VelRepr.Inertial:
             W_H_W = jnp.eye(4)
             W_X_W = Adjoint.from_transform(transform=W_H_W)
@@ -424,18 +445,18 @@ def jacobian_derivative(
         case VelRepr.Body:
             W_H_B = data._base_transform
             W_X_B = Adjoint.from_transform(transform=W_H_B)
-            B_v_WB = data.base_velocity
+            B_v_WB = data.base_velocity(input_representation)
             B_vx_WB = Cross.vx(B_v_WB)
-            W_Ẋ_B = W_X_B @ B_vx_WB
+            W_Ẋ_B = W_X_B @ B_vx_WB
 
             T = compute_T(model=model, X=W_X_B)
-            Ṫ = compute_Ṫ(model=model, Ẋ=W_Ẋ_B)
+            Ṫ = compute_Ṫ(model=model, Ẋ=W_Ẋ_B)
 
         case VelRepr.Mixed:
             W_H_B = data._base_transform
             W_H_BW = W_H_B.at[0:3, 0:3].set(jnp.eye(3))
             W_X_BW = Adjoint.from_transform(transform=W_H_BW)
-            BW_v_WB = data.base_velocity
+            BW_v_WB = data.base_velocity(input_representation)
             BW_v_W_BW = BW_v_WB.at[3:6].set(jnp.zeros(3))
             BW_vx_W_BW = Cross.vx(BW_v_W_BW)
             W_Ẋ_BW = W_X_BW @ BW_vx_W_BW
@@ -444,23 +465,24 @@ def jacobian_derivative(
             Ṫ = compute_Ṫ(model=model, Ẋ=W_Ẋ_BW)
 
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(input_representation)
 
     # =====================================================
     # Compute quantities to adjust the output representation
     # =====================================================
 
-    with data.switch_velocity_representation(VelRepr.Inertial):
-        # Compute the Jacobian of the parent link in inertial representation.
-        W_J_WL_W = js.model.generalized_free_floating_jacobian(
-            model=model,
-            data=data,
-        )
-        # Compute the Jacobian derivative of the parent link in inertial representation.
-        W_J̇_WL_W = js.model.generalized_free_floating_jacobian_derivative(
-            model=model,
-            data=data,
-        )
+    # Compute the Jacobian of the parent link in inertial representation.
+    W_J_WL_W = js.model.generalized_free_floating_jacobian(
+        model=model,
+        data=data,
+        input_representation=VelRepr.Inertial,
+    )
+    # Compute the Jacobian derivative of the parent link in inertial representation.
+    W_J̇_WL_W = js.model.generalized_free_floating_jacobian_derivative(
+        model=model,
+        data=data,
+        input_representation=VelRepr.Inertial,
+    )
 
     def compute_O_J̇_WC_I(
         L_p_C: jtp.Vector,
