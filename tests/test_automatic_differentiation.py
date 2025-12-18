@@ -81,7 +81,7 @@ def test_ad_aba(
     W_p_B = data.base_position
     W_Q_B = data.base_orientation
     s = data.joint_positions
-    W_v_WB = data.base_velocity
+    W_v_WB = data.base_velocity()
     ṡ = data.joint_velocities
 
     # Inputs.
@@ -135,7 +135,7 @@ def test_ad_rnea(
     W_p_B = data.base_position
     W_Q_B = data.base_orientation
     s = data.joint_positions
-    W_v_WB = data.base_velocity
+    W_v_WB = data.base_velocity()
     ṡ = data.joint_velocities
 
     # Inputs.
@@ -359,7 +359,7 @@ def test_ad_integration(
     W_p_B = data.base_position
     W_Q_B = data.base_orientation
     s = data.joint_positions
-    W_v_WB = data.base_velocity
+    W_v_WB = data.base_velocity()
     ṡ = data.joint_velocities
 
     # Inputs.
@@ -405,7 +405,7 @@ def test_ad_integration(
         xf_W_p_B = data_xf.base_position
         xf_W_Q_B = data_xf.base_orientation
         xf_s = data_xf.joint_positions
-        xf_W_v_WB = data_xf.base_velocity
+        xf_W_v_WB = data_xf.base_velocity()
         xf_ṡ = data_xf.joint_velocities
 
         return xf_W_p_B, xf_W_Q_B, xf_s, xf_W_v_WB, xf_ṡ

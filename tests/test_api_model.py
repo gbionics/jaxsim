@@ -112,8 +112,8 @@ def test_model_creation_and_reduction(
         base_position=data_full.base_position,
         base_quaternion=data_full.base_orientation,
         joint_positions=data_full.joint_positions[joint_idxs],
-        base_linear_velocity=data_full.base_velocity[0:3],
-        base_angular_velocity=data_full.base_velocity[3:6],
+        base_linear_velocity=data_full.base_velocity()[0:3],
+        base_angular_velocity=data_full.base_velocity()[3:6],
         joint_velocities=data_full.joint_velocities[joint_idxs],
         velocity_representation=data_full.velocity_representation,
     )
@@ -420,7 +420,7 @@ def test_coriolis_matrix(
     # Tests
     # =====
 
-    I_ν = data.generalized_velocity
+    I_ν = data.generalized_velocity()
     C = js.model.free_floating_coriolis_matrix(model=model, data=data)
 
     h = js.model.free_floating_bias_forces(model=model, data=data)
@@ -457,11 +457,8 @@ def test_coriolis_matrix(
 
     def compute_q̇(data: js.data.JaxSimModelData) -> jax.Array:
 
-        with data.switch_velocity_representation(VelRepr.Body):
-            B_ω_WB = data.base_velocity[3:6]
-
-        with data.switch_velocity_representation(VelRepr.Mixed):
-            W_ṗ_B = data.base_velocity[0:3]
+        B_ω_WB = data.base_velocity(VelRepr.Body)[3:6]
+        W_ṗ_B = data.base_velocity(VelRepr.Mixed)[0:3]
 
         W_Q̇_B = jaxsim.math.Quaternion.derivative(
             quaternion=data.base_orientation,
