@@ -62,7 +62,7 @@ def test_contact_kinematics(
     W_ṗ_C = js.contact.collidable_point_velocities(model=model, data=data)
 
     # Compute the velocity of the collidable point using the contact Jacobian.
-    ν = data.generalized_velocity
+    ν = data.generalized_velocity()
     CW_J_WC = js.contact.jacobian(model=model, data=data, output_vel_repr=VelRepr.Mixed)
     CW_vl_WC = jnp.einsum("c6g,g->c6", CW_J_WC, ν)[:, 0:3]
 
@@ -93,7 +93,7 @@ def test_collidable_point_jacobians(
     W_ṗ_C = js.contact.collidable_point_velocities(model=model, data=data)
 
     # Compute the generalized velocity and the free-floating Jacobian of the frame C.
-    ν = data.generalized_velocity
+    ν = data.generalized_velocity()
     CW_J_WC = js.contact.jacobian(model=model, data=data, output_vel_repr=VelRepr.Mixed)
 
     # Compute the velocity of the collidable points using the Jacobians.
@@ -169,8 +169,8 @@ def test_contact_jacobian_derivative(
         base_position=data.base_position,
         base_quaternion=data.base_orientation,
         joint_positions=data.joint_positions,
-        base_linear_velocity=data.base_velocity[0:3],
-        base_angular_velocity=data.base_velocity[3:6],
+        base_linear_velocity=data.base_velocity()[0:3],
+        base_angular_velocity=data.base_velocity()[3:6],
         joint_velocities=data.joint_velocities,
         velocity_representation=velocity_representation,
     )
