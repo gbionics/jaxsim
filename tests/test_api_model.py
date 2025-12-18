@@ -370,37 +370,35 @@ def test_model_jacobian(
 
     # Get the J.T @ f product in inertial-fixed input/output representation.
     # We use doubly right-trivialized jacobian with inertial-fixed 6D forces.
-    with (
-        references.switch_velocity_representation(VelRepr.Inertial),
-        data.switch_velocity_representation(VelRepr.Inertial),
-    ):
+    f = references.link_forces(
+        model=model, data=data, output_representation=VelRepr.Inertial
+    )
+    assert_allclose(f, references._link_forces)
 
-        f = references.link_forces(model=model, data=data)
-        assert_allclose(f, references._link_forces)
-
-        J = js.model.generalized_free_floating_jacobian(model=model, data=data)
-        JTf_inertial = jnp.einsum("l6g,l6->g", J, f)
+    J = js.model.generalized_free_floating_jacobian(
+        model=model, data=data, input_representation=VelRepr.Inertial
+    )
+    JTf_inertial = jnp.einsum("l6g,l6->g", J, f)
 
     for vel_repr in [VelRepr.Body, VelRepr.Mixed]:
-        with references.switch_velocity_representation(vel_repr):
+        # Get the jacobian having an inertial-fixed input representation (so that
+        # it computes the same quantity computed above) and an output representation
+        # compatible with the frame in which the external forces are expressed.
+        J = js.model.generalized_free_floating_jacobian(
+            model=model,
+            data=data,
+            input_representation=VelRepr.Inertial,
+            output_vel_repr=vel_repr,
+        )
 
-            # Get the jacobian having an inertial-fixed input representation (so that
-            # it computes the same quantity computed above) and an output representation
-            # compatible with the frame in which the external forces are expressed.
-            with data.switch_velocity_representation(VelRepr.Inertial):
-
-                J = js.model.generalized_free_floating_jacobian(
-                    model=model, data=data, output_vel_repr=vel_repr
-                )
-
-            # Get the forces in the tested representation and compute the product
-            # O_J_WL_W.T @ O_f, producing a generalized acceleration in W.
-            # The resulting acceleration can be tested again the one computed before.
-            with data.switch_velocity_representation(vel_repr):
-
-                f = references.link_forces(model=model, data=data)
-                JTf_other = jnp.einsum("l6g,l6->g", J, f)
-                assert_allclose(JTf_inertial, JTf_other, err_msg=vel_repr.name)
+        # Get the forces in the tested representation and compute the product
+        # O_J_WL_W.T @ O_f, producing a generalized acceleration in W.
+        # The resulting acceleration can be tested again the one computed before.
+        f = references.link_forces(
+            model=model, data=data, output_representation=vel_repr
+        )
+        JTf_other = jnp.einsum("l6g,l6->g", J, f)
+        assert_allclose(JTf_inertial, JTf_other, err_msg=vel_repr.name)
 
 
 def test_coriolis_matrix(
