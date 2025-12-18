@@ -77,14 +77,16 @@ def _compute_constraint_jacobians_batched(
         matrices.
     """
 
-    with data.switch_velocity_representation(VelRepr.Body):
-        # Doubly-left free-floating Jacobian.
-        L_J_WL_B = js.model.generalized_free_floating_jacobian(
-            model=model, data=data, output_vel_repr=VelRepr.Body
-        )
+    # Doubly-left free-floating Jacobian.
+    L_J_WL_B = js.model.generalized_free_floating_jacobian(
+        model=model,
+        data=data,
+        input_representation=VelRepr.Body,
+        output_vel_repr=VelRepr.Body,
+    )
 
-        # Link transforms
-        W_H_L = data._link_transforms
+    # Link transforms
+    W_H_L = data._link_transforms
 
     def compute_frame_jacobian_mixed(L_J_WL, W_H_L, W_H_F, parent_link_index):
         """Compute the jacobian of a frame in mixed representation."""
@@ -237,70 +239,69 @@ def compute_constraint_wrenches(
         velocity_representation=VelRepr.Inertial,
     )
 
-    with (
-        data.switch_velocity_representation(VelRepr.Mixed),
-        references.switch_velocity_representation(VelRepr.Mixed),
-    ):
-        BW_ν = data.generalized_velocity
+    BW_ν = data.generalized_velocity(VelRepr.Mixed)
 
-        # Compute free acceleration without constraints
-        BW_ν̇_free = jnp.hstack(
-            js.model.forward_dynamics_aba(
-                model=model,
-                data=data,
-                link_forces=references.link_forces(model=model, data=data),
-                joint_forces=references.joint_force_references(model=model),
-            )
-        )
-
-        # Compute mass matrix
-        M_inv = js.model.free_floating_mass_matrix_inverse(model=model, data=data)
-
-        W_H_constr_pairs = _compute_constraint_transforms_batched(
+    # Compute free acceleration without constraints
+    BW_ν̇_free = jnp.hstack(
+        js.model.forward_dynamics_aba(
             model=model,
             data=data,
-            constraints=kin_constraints,
+            link_forces=references.link_forces(model=model, data=data),
+            joint_forces=references.joint_force_references(model=model),
+            output_representation=VelRepr.Mixed,
         )
+    )
 
-        # Compute constraint jacobians
-        J_constr = _compute_constraint_jacobians_batched(
-            model=model,
-            data=data,
-            constraints=kin_constraints,
-            W_H_constraint_pairs=W_H_constr_pairs,
-        )
+    # Compute mass matrix
+    M_inv = js.model.free_floating_mass_matrix_inverse(
+        model=model, data=data, output_representation=VelRepr.Mixed
+    )
 
-        # Compute Baumgarte stabilization term
-        constr_baumgarte_term = jnp.ravel(
-            jax.vmap(
-                _compute_constraint_baumgarte_term,
-                in_axes=(0, None, 0, 0),
-            )(
-                J_constr,
-                BW_ν,
-                W_H_constr_pairs,
-                kin_constraints,
-            ),
-        )
+    W_H_constr_pairs = _compute_constraint_transforms_batched(
+        model=model,
+        data=data,
+        constraints=kin_constraints,
+    )
 
-        # Stack constraint jacobians
-        J_constr = jnp.vstack(J_constr)
+    # Compute constraint jacobians
+    J_constr = _compute_constraint_jacobians_batched(
+        model=model,
+        data=data,
+        constraints=kin_constraints,
+        W_H_constraint_pairs=W_H_constr_pairs,
+    )
 
-        # Compute Delassus matrix for constraints
-        G_constraints = J_constr @ M_inv @ J_constr.T
+    # Compute Baumgarte stabilization term
+    constr_baumgarte_term = jnp.ravel(
+        jax.vmap(
+            _compute_constraint_baumgarte_term,
+            in_axes=(0, None, 0, 0),
+        )(
+            J_constr,
+            BW_ν,
+            W_H_constr_pairs,
+            kin_constraints,
+        ),
+    )
 
-        # Compute constraint acceleration
-        # TODO: add J̇_constr with efficient computation
-        CW_al_free_constr = J_constr @ BW_ν̇_free
+    # Stack constraint jacobians
+    J_constr = jnp.vstack(J_constr)
 
-        # Setup constraint optimization problem
-        constraint_regularization = regularization * jnp.ones(n_kin_constraints)
-        R = jnp.diag(constraint_regularization)
-        A = G_constraints + R
-        b = CW_al_free_constr + constr_baumgarte_term
+    # Compute Delassus matrix for constraints
+    G_constraints = J_constr @ M_inv @ J_constr.T
 
-        # Solve for constraint forces
-        kin_constr_wrench_mixed = jnp.linalg.solve(A, -b).reshape(-1, 6)
+    # Compute constraint acceleration
+    # TODO: add J̇_constr with efficient computation
+    CW_al_free_constr = J_constr @ BW_ν̇_free
+
+    # Setup constraint optimization problem
+    constraint_regularization = regularization * jnp.ones(n_kin_constraints)
+    R = jnp.diag(constraint_regularization)
+    A = G_constraints + R
+    b = CW_al_free_constr + constr_baumgarte_term
+
+    # Solve for constraint forces
+    kin_constr_wrench_mixed = jnp.linalg.solve(A, -b).reshape(-1, 6)
 
     def transform_wrenches_to_inertial(wrench, transform_pair):
         """
