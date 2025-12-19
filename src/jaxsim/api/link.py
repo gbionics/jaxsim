@@ -387,7 +387,7 @@ def velocity(
     )
 
     # Get the generalized velocity in the input velocity representation.
-    I_ν = data.generalized_velocity(output_vel_repr)
+    I_ν = data.generalized_velocity()
 
     # Compute the link velocity in the output velocity representation.
     return O_J_WL_I @ I_ν
