@@ -2099,7 +2099,10 @@ def locked_spatial_inertia(
     )
 
     return total_momentum_jacobian(
-        model=model, data=data, output_vel_repr=output_representation
+        model=model,
+        data=data,
+        input_representation=output_representation,
+        output_vel_repr=output_representation,
     )[:, 0:6]
 
 
