@@ -46,7 +46,7 @@ jobs:
 
       - name: Get benchmark results from main branch
         id: cache
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v5
         with:
           path: ./cache
           key: ${{ runner.os }}-benchmark
@@ -104,7 +104,7 @@ jobs:
           auto-push: ${{ github.event_name == 'schedule' || github.event_name == 'workflow_dispatch' }}
 
       - name: Update Benchmark Results cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v5
         if: ${{ github.ref_name == 'main' }}
         with:
           path: ./cache
