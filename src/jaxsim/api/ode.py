@@ -164,7 +164,6 @@ def system_position_dynamics(
     W_Q̇_B = Quaternion.derivative(
         quaternion=W_Q_B,
         omega=W_ω_WB,
-        omega_in_body_fixed=False,
         K=baumgarte_quaternion_regularization,
     ).squeeze()
 
