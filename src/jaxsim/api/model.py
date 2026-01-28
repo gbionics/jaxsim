@@ -586,7 +586,7 @@ class JaxSimModel(JaxsimDataclass):
                 "collision": links_dict[link_name].collision,
             }
 
-            for attr_name, element in elements_to_update.items():
+            for element in elements_to_update.values():
                 if element is None:
                     continue
 
@@ -2677,3 +2677,28 @@ def step(
     )
 
     return data_tf
+
+
+@jax.jit
+@js.common.named_scope
+def step_with_pallas(model, data):
+    """
+    Perform a simulation step with Pallas contact model.
+
+    Args:
+        model: The model to consider.
+        data: The data of the considered model.
+        contact_params: The contact parameters required by Pallas.
+
+    Returns:
+        The new data of the model after the simulation step.
+    """
+    # 1. Compute forces
+    # The Pallas kernel runs here inside the JIT
+    ext_link_forces = js.contact.compute_pallas_contacts(model, data)
+
+    # 2. Step physics
+    # Pass the computed forces into JaxSim
+    new_data = js.model.step(model, data, link_forces=ext_link_forces)
+
+    return new_data

@@ -4,6 +4,7 @@ import functools
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 
 import jaxsim.api as js
 import jaxsim.exceptions
@@ -11,6 +12,7 @@ import jaxsim.typing as jtp
 from jaxsim import logging
 from jaxsim.math import Adjoint, Cross, Transform
 from jaxsim.rbda.contacts import SoftContacts
+from jaxsim.rbda.contacts.soft import pallas_contact_step
 
 from .common import VelRepr
 
@@ -601,3 +603,60 @@ def link_forces_from_contact_forces(
     W_f_L = mask.T @ W_f_C
 
     return W_f_L
+
+
+@jax.jit
+def compute_pallas_contacts(
+    model: js.model.JaxSimModel, data: js.data.JaxSimModelData
+) -> jtp.Matrix:
+    """
+    Compute external spatial forces for all links using the Pallas contact kernel.
+
+    Args:
+        model: The robot model.
+        data: The model data.
+
+    Returns:
+        A (nL, 6) array of spatial forces applied to each link in world
+        coordinates due to contact with the terrain.
+    """
+
+    link_indices = jnp.asarray(model.kin_dyn_parameters.contact_parameters.body)
+    local_offsets = jnp.asarray(
+        model.kin_dyn_parameters.contact_parameters.point[
+            model.kin_dyn_parameters.contact_parameters.indices_of_enabled_collidable_points
+        ]
+    )
+
+    # Gather link data for each collision point
+    W_H_L_selected = data._link_transforms[link_indices]
+    v_L_selected = data._link_velocities[link_indices]
+
+    # Extract world positions and rotations
+    W_R_L = W_H_L_selected[:, 0:3, 0:3]
+    W_p_L = W_H_L_selected[:, 0:3, 3]
+
+    # Rotate offsets to world frame
+    W_offsets = jax.vmap(jnp.dot)(W_R_L, local_offsets)
+    W_pos_points = W_p_L + W_offsets
+
+    # Calculate World Linear Velocity of Points
+    omega_W = v_L_selected[:, 0:3]
+    vel_W_link = v_L_selected[:, 3:6]
+
+    W_vel_points = vel_W_link + jax.vmap(jnp.cross)(omega_W, W_offsets)
+
+    # Compute forces in world frame at contact points
+    W_forces_points = pallas_contact_step(W_pos_points, W_vel_points, k=2000.0, c=20.0)
+
+    # Convert forces at points to spatial forces at link origins
+    torques_W = jax.vmap(jnp.cross)(W_offsets, W_forces_points)
+
+    # Stack to create spatial force vectors (6D): [Torque, Force]
+    W_spatial_forces_per_point = jnp.hstack([torques_W, W_forces_points])
+
+    link_forces_W = jax.ops.segment_sum(
+        W_spatial_forces_per_point, link_indices, num_segments=model.number_of_links()
+    )
+
+    return link_forces_W

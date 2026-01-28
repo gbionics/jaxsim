@@ -6,6 +6,7 @@ import functools
 import jax
 import jax.numpy as jnp
 import jax_dataclasses
+from jax.experimental import pallas
 
 import jaxsim.api as js
 import jaxsim.math
@@ -442,3 +443,125 @@ class SoftContacts(common.ContactModel):
         ṁ = ṁ.at[indices_of_enabled_collidable_points].set(ṁ_enabled)
 
         return W_f, {"m_dot": ṁ}
+
+
+def contact_kernel(
+    # Inputs (Pallas Refs)
+    pos_ref,  # Shape (BLOCK_SIZE, 3)
+    vel_ref,  # Shape (BLOCK_SIZE, 3)
+    # Scalar inputs
+    stiffness_ref,
+    damping_ref,
+    # Outputs
+    force_ref,  # Shape (BLOCK_SIZE, 3)
+):
+    """
+    Pallas kernel to compute contact forces using Hunt-Crossley model.
+
+    This kernel processes a block of collidable points and computes
+    the contact forces for points that are in contact with the ground (z < 0).
+    """
+
+    # Read the full block of positions and velocities.
+    pos = pos_ref[...]  # Shape (BLOCK_SIZE, 3)
+    vel = vel_ref[...]  # Shape (BLOCK_SIZE, 3)
+
+    # Read scalar parameters.
+    stiffness = stiffness_ref[()]
+    damping = damping_ref[()]
+
+    # Extract z coordinates for contact detection.
+    z_vals = pos[:, 2]
+
+    # Identify contacts: z < 0 means penetration.
+    is_contact = z_vals < 0.0
+
+    # Compute penetration depth (positive when in contact).
+    depth = jnp.maximum(0.0, -z_vals)
+
+    # Extract z velocity.
+    vel_z = vel[:, 2]
+
+    # Hunt-Crossley contact model.
+    # Force = k * depth^1.5 + c * vel_z * sqrt(depth)
+    # We add a small epsilon to avoid issues with sqrt(0).
+    eps = jnp.finfo(depth.dtype).eps
+    sqrt_depth = jnp.sqrt(depth + eps)
+    depth_1_5 = depth * sqrt_depth  # depth^1.5 = depth * sqrt(depth)
+
+    spring_force = stiffness * depth_1_5
+    damper_force = damping * vel_z * sqrt_depth
+
+    # Total normal force (only positive, pushing up).
+    total_fz = jnp.maximum(0.0, spring_force - damper_force)
+
+    # Zero out force for points not in contact.
+    total_fz = jnp.where(is_contact, total_fz, 0.0)
+
+    # Build output forces: Fx=0, Fy=0, Fz=total_fz.
+    forces = jnp.zeros_like(pos)
+    forces = forces.at[:, 2].set(total_fz)
+
+    # Write output.
+    force_ref[...] = forces
+
+
+def pallas_contact_step(positions, velocities, k=1000.0, c=10.0):
+    """
+    Compute contact forces using a Pallas kernel.
+
+    Args:
+        positions: Array of shape (N, 3) with the positions of the collidable points.
+        velocities: Array of shape (N, 3) with the velocities of the collidable points.
+        k: Stiffness parameter.
+        c: Damping parameter.
+
+    Returns:
+        Array of shape (N, 3) with the computed contact forces.
+    """
+
+    N = positions.shape[0]
+
+    # Block size for processing points
+    block_size = min(128, N)
+
+    # Pad arrays to be divisible by block_size
+    pad_size = (block_size - N % block_size) % block_size
+    if pad_size > 0:
+        positions = jnp.pad(positions, ((0, pad_size), (0, 0)), constant_values=1.0)
+        velocities = jnp.pad(velocities, ((0, pad_size), (0, 0)), constant_values=0.0)
+
+    N_padded = positions.shape[0]
+    num_blocks = N_padded // block_size
+
+    # Convert scalars to arrays for Pallas
+    stiffness = jnp.array(k, dtype=positions.dtype)
+    damping = jnp.array(c, dtype=positions.dtype)
+
+    # Define the grid (number of blocks to process)
+    grid = (num_blocks,)
+
+    # Define input/output specifications.
+    in_specs = [
+        pallas.BlockSpec((block_size, 3), lambda i: (i, 0)),  # positions
+        pallas.BlockSpec((block_size, 3), lambda i: (i, 0)),  # velocities
+        pallas.BlockSpec((), lambda i: ()),  # stiffness (scalar)
+        pallas.BlockSpec((), lambda i: ()),  # damping (scalar)
+    ]
+    out_specs = pallas.BlockSpec((block_size, 3), lambda i: (i, 0))  # forces
+
+    # Determine if we need interpret mode (required for CPU)
+    interpret = jax.default_backend() == "cpu"
+
+    # Call the Pallas kernel
+    forces = pallas.pallas_call(
+        contact_kernel,
+        out_shape=jax.ShapeDtypeStruct((N_padded, 3), positions.dtype),
+        grid=grid,
+        in_specs=in_specs,
+        out_specs=out_specs,
+        interpret=interpret,
+    )(positions, velocities, stiffness, damping)
+
+    # Remove padding
+    return forces[:N]

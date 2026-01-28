@@ -1,3 +1,5 @@
+import os
+
 import jax
 import jax.numpy as jnp
 
@@ -64,6 +66,9 @@ def system_acceleration(
             link_forces=f_L,
             joint_torques=joint_torques,
         )
+
+        if os.environ["JAXSIM_USE_PALLAS_CONTACTS"] == "1":
+            W_f_L_terrain = js.contact.compute_pallas_contacts(model, data)
 
         # Update the contact state data. This is necessary only for the contact models
         # that require propagation and integration of contact state.
