@@ -5,7 +5,7 @@ import time
 
 import numpy as np
 
-from . import MujocoModelHelper, MujocoVisualizer, SdfToMjcf, UrdfToMjcf
+from . import ModelToMjcf, MujocoModelHelper, MujocoVisualizer
 
 if __name__ == "__main__":
 
@@ -129,20 +129,7 @@ if __name__ == "__main__":
     # Load the URDF/SDF file and produce a MJCF string
     # ================================================
 
-    match args.description.suffix.lower()[1:]:
-
-        case "urdf":
-            mjcf_string, assets = UrdfToMjcf().convert(urdf=args.description)
-
-        case "sdf":
-            mjcf_string, assets = SdfToMjcf().convert(
-                sdf=args.description, model_name=args.model_name
-            )
-
-        case _:
-            msg = f"The file extension '{args.description.suffix}' is not supported."
-            parser.error(msg)
-            sys.exit(1)
+    mjcf_string, assets = ModelToMjcf.convert(args.description)
 
     if args.print:
         print(mjcf_string, flush=True)
