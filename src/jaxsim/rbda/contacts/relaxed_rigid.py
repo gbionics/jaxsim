@@ -352,36 +352,41 @@ class RelaxedRigidContacts(common.ContactModel):
         # collidable points.
         W_H_C = js.contact.transforms(model=model, data=data)
 
-        with (
-            data.switch_velocity_representation(VelRepr.Mixed),
-            references.switch_velocity_representation(VelRepr.Mixed),
-        ):
-            BW_ν = data.generalized_velocity
+        BW_ν = data.generalized_velocity(VelRepr.Mixed)
 
-            BW_ν̇_free = jnp.hstack(
-                js.model.forward_dynamics_aba(
-                    model=model,
-                    data=data,
-                    link_forces=references.link_forces(model=model, data=data),
-                    joint_forces=references.joint_force_references(model=model),
-                )
+        BW_ν̇_free = jnp.hstack(
+            js.model.forward_dynamics_aba(
+                model=model,
+                data=data,
+                link_forces=references.link_forces(model=model, data=data),
+                joint_forces=references.joint_force_references(model=model),
+                output_representation=VelRepr.Mixed,
             )
+        )
 
-            M_inv = js.model.free_floating_mass_matrix_inverse(model=model, data=data)
+        M_inv = js.model.free_floating_mass_matrix_inverse(
+            model=model, data=data, output_representation=VelRepr.Mixed
+        )
 
-            # Compute the linear part of the Jacobian of the collidable points
-            Jl_WC = jnp.vstack(
-                jax.vmap(lambda J, δ: J * (δ > 0))(
-                    js.contact.jacobian(model=model, data=data)[:, :3, :], δ
-                )
+        # Compute the linear part of the Jacobian of the collidable points
+        Jl_WC = jnp.vstack(
+            jax.vmap(lambda J, δ: J * (δ > 0))(
+                js.contact.jacobian(
+                    model=model, data=data, input_representation=VelRepr.Mixed
+                )[:, :3, :],
+                δ,
             )
+        )
 
-            # Compute the linear part of the Jacobian derivative of the collidable points
-            J̇l_WC = jnp.vstack(
-                jax.vmap(lambda J̇, δ: J̇ * (δ > 0))(
-                    js.contact.jacobian_derivative(model=model, data=data)[:, :3], δ
-                ),
-            )
+        # Compute the linear part of the Jacobian derivative of the collidable points
+        J̇l_WC = jnp.vstack(
+            jax.vmap(lambda J̇, δ: J̇ * (δ > 0))(
+                js.contact.jacobian_derivative(
+                    model=model, data=data, input_representation=VelRepr.Mixed
+                )[:, :3],
+                δ,
+            ),
+        )
 
         # Compute the Delassus matrix directly using J and J̇.
         G_contacts = Jl_WC @ M_inv @ Jl_WC.T

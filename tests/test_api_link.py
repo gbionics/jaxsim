@@ -184,10 +184,9 @@ def test_link_jacobians(
         {data.velocity_representation}
     ):
 
-        with data.switch_velocity_representation(other_repr):
-            kin_dyn_other_repr = utils.build_kindyncomputations_from_jaxsim_model(
-                model=model, data=data
-            )
+        kin_dyn_other_repr = utils.build_kindyncomputations_from_jaxsim_model(
+            model=model, data=data, vel_repr=other_repr
+        )
 
         for link_name, link_idx in zip(
             model.link_names(),
@@ -248,17 +247,17 @@ def test_link_bias_acceleration(
 
             W_a_bias_WL = js.model.link_bias_accelerations(model=model, data=data)
 
-            with data.switch_velocity_representation(VelRepr.Body):
+            W_X_L = jax.vmap(
+                lambda W_H_L: jaxsim.math.Adjoint.from_transform(transform=W_H_L)
+            )(W_H_L)
 
-                W_X_L = jax.vmap(
-                    lambda W_H_L: jaxsim.math.Adjoint.from_transform(transform=W_H_L)
-                )(W_H_L)
+            L_a_bias_WL = js.model.link_bias_accelerations(
+                model=model, data=data, output_representation=VelRepr.Body
+            )
 
-                L_a_bias_WL = js.model.link_bias_accelerations(model=model, data=data)
-
-                W_a_bias_WL_converted = jax.vmap(
-                    lambda W_X_L, L_a_bias_WL: W_X_L @ L_a_bias_WL
-                )(W_X_L, L_a_bias_WL)
+            W_a_bias_WL_converted = jax.vmap(
+                lambda W_X_L, L_a_bias_WL: W_X_L @ L_a_bias_WL
+            )(W_X_L, L_a_bias_WL)
 
             assert_allclose(W_a_bias_WL, W_a_bias_WL_converted)
 
@@ -269,19 +268,19 @@ def test_link_bias_acceleration(
 
             L_a_bias_WL = js.model.link_bias_accelerations(model=model, data=data)
 
-            with data.switch_velocity_representation(VelRepr.Inertial):
+            L_X_W = jax.vmap(
+                lambda W_H_L: jaxsim.math.Adjoint.from_transform(
+                    transform=W_H_L, inverse=True
+                )
+            )(W_H_L)
 
-                L_X_W = jax.vmap(
-                    lambda W_H_L: jaxsim.math.Adjoint.from_transform(
-                        transform=W_H_L, inverse=True
-                    )
-                )(W_H_L)
+            W_a_bias_WL = js.model.link_bias_accelerations(
+                model=model, data=data, output_representation=VelRepr.Inertial
+            )
 
-                W_a_bias_WL = js.model.link_bias_accelerations(model=model, data=data)
-
-                L_a_bias_WL_converted = jax.vmap(
-                    lambda L_X_W, W_a_bias_WL: L_X_W @ W_a_bias_WL
-                )(L_X_W, W_a_bias_WL)
+            L_a_bias_WL_converted = jax.vmap(
+                lambda L_X_W, W_a_bias_WL: L_X_W @ W_a_bias_WL
+            )(L_X_W, W_a_bias_WL)
 
             assert_allclose(L_a_bias_WL, L_a_bias_WL_converted)
 
@@ -306,7 +305,7 @@ def test_link_jacobian_derivative(
     # =====
 
     # Get the generalized velocity.
-    I_ν = data.generalized_velocity
+    I_ν = data.generalized_velocity()
 
     # Compute J̇.
     O_J̇_WL_I = jax.vmap(
@@ -351,11 +350,9 @@ def test_link_jacobian_derivative(
 
     def compute_q̇(data: js.data.JaxSimModelData) -> jax.Array:
 
-        with data.switch_velocity_representation(VelRepr.Body):
-            B_ω_WB = data.base_velocity[3:6]
+        B_ω_WB = data.base_velocity(VelRepr.Body)[3:6]
 
-        with data.switch_velocity_representation(VelRepr.Mixed):
-            W_ṗ_B = data.base_velocity[0:3]
+        W_ṗ_B = data.base_velocity(VelRepr.Mixed)[0:3]
 
         W_Q̇_B = jaxsim.math.Quaternion.derivative(
             quaternion=data.base_orientation,
