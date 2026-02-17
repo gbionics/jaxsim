@@ -30,6 +30,7 @@ from jaxsim.math import Adjoint, Cross
 from jaxsim.parsers.descriptions import ModelDescription
 from jaxsim.parsers.descriptions.joint import JointDescription
 from jaxsim.parsers.descriptions.link import LinkDescription
+from jaxsim.parsers.rod.utils import prepare_mesh_for_parametrization
 from jaxsim.utils import JaxsimDataclass, Mutability, wrappers
 
 from .common import VelRepr
@@ -385,6 +386,10 @@ class JaxSimModel(JaxsimDataclass):
         L_H_vises = []
         L_H_pre_masks = []
         L_H_pre = []
+        mesh_vertices = []
+        mesh_faces = []
+        mesh_offsets = []
+        mesh_uris = []
 
         # Process each link, only parametrizing those in parametrized_links if provided
         for link_description in ordered_links:
@@ -399,6 +404,10 @@ class JaxSimModel(JaxsimDataclass):
                 L_H_vises.append(jnp.eye(4))
                 L_H_pre_masks.append([0] * self.number_of_joints())
                 L_H_pre.append([jnp.eye(4)] * self.number_of_joints())
+                mesh_vertices.append(None)
+                mesh_faces.append(None)
+                mesh_offsets.append(None)
+                mesh_uris.append(None)
                 continue
 
             rod_link = rod_links_dict.get(link_name)
@@ -450,16 +459,28 @@ class JaxSimModel(JaxsimDataclass):
                 density = mass / (lx * ly * lz)
                 geom = [lx, ly, lz]
                 shape = LinkParametrizableShape.Box
+                mesh_vertices.append(None)
+                mesh_faces.append(None)
+                mesh_offsets.append(None)
+                mesh_uris.append(None)
             elif isinstance(geometry, rod.Sphere):
                 r = geometry.radius
                 density = mass / (4 / 3 * jnp.pi * r**3)
                 geom = [r, 0, 0]
                 shape = LinkParametrizableShape.Sphere
+                mesh_vertices.append(None)
+                mesh_faces.append(None)
+                mesh_offsets.append(None)
+                mesh_uris.append(None)
             elif isinstance(geometry, rod.Cylinder):
                 r, l = geometry.radius, geometry.length
                 density = mass / (jnp.pi * r**2 * l)
                 geom = [r, l, 0]
                 shape = LinkParametrizableShape.Cylinder
+                mesh_vertices.append(None)
+                mesh_faces.append(None)
+                mesh_offsets.append(None)
+                mesh_uris.append(None)
             else:
                 logging.debug(
                     f"Skipping link '{link_name}' for hardware parametrization due to unsupported geometry."
@@ -467,6 +488,10 @@ class JaxSimModel(JaxsimDataclass):
                 density = 0.0
                 geom = [0, 0, 0]
                 shape = LinkParametrizableShape.Unsupported
+                mesh_vertices.append(None)
+                mesh_faces.append(None)
+                mesh_offsets.append(None)
+                mesh_uris.append(None)
 
             inertial_pose = (
                 rod_link.inertial.pose.transform() if rod_link else jnp.eye(4)
