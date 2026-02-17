@@ -1085,16 +1085,79 @@ class HwLinkMetadata(JaxsimDataclass):
 
             return mass, inertia
 
-        def compute_mass_inertia(shape_idx, dims, density):
+        def compute_mass_inertia_primitive(shape_idx, dims, density):
             return jax.lax.switch(shape_idx, (box, cylinder, sphere), dims, density)
 
-        mass, inertia = jax.vmap(compute_mass_inertia)(
-            hw_link_metadata.link_shape,
-            hw_link_metadata.geometry,
-            hw_link_metadata.density,
+        # For models with mesh data, we need to handle Static heterogeneous mesh arrays
+        has_mesh_data = (
+            hw_link_metadata.mesh_vertices is not None
+            and hw_link_metadata.mesh_faces is not None
         )
 
-        return mass, inertia
+        if has_mesh_data:
+            mesh_verts_tuple = hw_link_metadata.mesh_vertices
+            mesh_faces_tuple = hw_link_metadata.mesh_faces
+            n_links = len(mesh_verts_tuple)
+
+            # Build per-link compute functions that capture mesh data in closures
+            # This loop runs once at trace time to build the computation graph
+            compute_fns = []
+            for i in range(n_links):
+                if mesh_verts_tuple[i] is not None:
+                    # Capture this link's mesh data in the closure
+                    verts_data = jnp.array(mesh_verts_tuple[i].get())
+                    faces_data = jnp.array(mesh_faces_tuple[i].get())
+
+                    def make_fn(verts, faces):
+                        def link_fn(shape, dims, density):
+                            def mesh_branch():
+                                scaled_vertices = verts * dims
+                                mass_m, _, inertia_m = (
+                                    HwLinkMetadata.compute_mesh_inertia(
+                                        scaled_vertices, faces, density
+                                    )
+                                )
+                                return mass_m, inertia_m
+
+                            def primitive_branch():
+                                return compute_mass_inertia_primitive(
+                                    shape, dims, density
+                                )
+
+                            return jax.lax.cond(
+                                shape == LinkParametrizableShape.Mesh,
+                                mesh_branch,
+                                primitive_branch,
+                            )
+
+                        return link_fn
+
+                    compute_fns.append(make_fn(verts_data, faces_data))
+                else:
+                    # No mesh data for this link
+                    def link_fn(shape, dims, density):
+                        return compute_mass_inertia_primitive(shape, dims, density)
+
+                    compute_fns.append(link_fn)
+
+            def compute_single_link(link_idx, shape, dims, density):
+                return jax.lax.switch(link_idx, compute_fns, shape, dims, density)
+
+            masses, inertias = jax.vmap(compute_single_link)(
+                jnp.arange(n_links),
+                hw_link_metadata.link_shape,
+                hw_link_metadata.geometry,
+                hw_link_metadata.density,
+            )
+        else:
+            # No mesh data - pure primitives with simple vmap
+            masses, inertias = jax.vmap(compute_mass_inertia_primitive)(
+                hw_link_metadata.link_shape,
+                hw_link_metadata.geometry,
+                hw_link_metadata.density,
+            )
+
+        return masses, inertias
 
     @staticmethod
     def _convert_scaling_to_3d_vector(
