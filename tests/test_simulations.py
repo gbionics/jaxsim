@@ -55,14 +55,14 @@ def test_box_with_external_forces(
     )
 
     # Apply a link forces to the base link.
-    with references.switch_velocity_representation(VelRepr.Body):
-        references = references.apply_link_forces(
-            forces=jnp.atleast_2d(L_f),
-            link_names=model.link_names()[0:1],
-            model=model,
-            data=data0,
-            additive=False,
-        )
+    references = references.apply_link_forces(
+        forces=jnp.atleast_2d(L_f),
+        link_names=model.link_names()[0:1],
+        model=model,
+        data=data0,
+        additive=False,
+        input_representation=VelRepr.Body,
+    )
 
     # Initialize the simulation horizon.
     tf = 0.5
@@ -115,30 +115,28 @@ def test_box_with_zero_gravity(
         velocity_representation=velocity_representation,
     )
 
-    # Apply a link forces to the base link.
-    with references.switch_velocity_representation(jaxsim.VelRepr.Mixed):
+    # Generate a random linear force.
+    # We enforce them to be the same for all velocity representations so that
+    # we can compare their outcomes.
+    LW_f = 10.0 * (
+        jax.random.uniform(jax.random.key(0), shape=(model.number_of_links(), 6))
+        .at[:, 3:]
+        .set(jnp.zeros(3))
+    )
 
-        # Generate a random linear force.
-        # We enforce them to be the same for all velocity representations so that
-        # we can compare their outcomes.
-        LW_f = 10.0 * (
-            jax.random.uniform(jax.random.key(0), shape=(model.number_of_links(), 6))
-            .at[:, 3:]
-            .set(jnp.zeros(3))
-        )
-
-        # Note that the context manager does not switch back the newly created
-        # `references` (that is not the yielded object) to the original representation.
-        # In the simulation loop below, we need to make sure that we switch both `data`
-        # and `references` to the same representation before extracting the information
-        # passed to the step function.
-        references = references.apply_link_forces(
-            forces=jnp.atleast_2d(LW_f),
-            link_names=model.link_names(),
-            model=model,
-            data=data0,
-            additive=False,
-        )
+    # Note that the context manager does not switch back the newly created
+    # `references` (that is not the yielded object) to the original representation.
+    # In the simulation loop below, we need to make sure that we switch both `data`
+    # and `references` to the same representation before extracting the information
+    # passed to the step function.
+    references = references.apply_link_forces(
+        forces=jnp.atleast_2d(LW_f),
+        link_names=model.link_names(),
+        model=model,
+        data=data0,
+        additive=False,
+        input_representation=VelRepr.Mixed,
+    )
 
     tf = 0.01
     T = jnp.arange(start=0, stop=tf * 1e9, step=model.time_step * 1e9, dtype=int)
@@ -148,15 +146,14 @@ def test_box_with_zero_gravity(
 
     # ... and step the simulation.
     for _ in T:
-        with (
-            data.switch_velocity_representation(velocity_representation),
-            references.switch_velocity_representation(velocity_representation),
-        ):
-            data = js.model.step(
-                model=model,
-                data=data,
-                link_forces=references.link_forces(model=model, data=data),
-            )
+        data = js.model.step(
+            model=model,
+            data=data,
+            link_forces=references.link_forces(
+                model=model, data=data, output_representation=velocity_representation
+            ),
+            output_representation=velocity_representation,
+        )
 
     # Check that the box moved as expected.
     assert_allclose(

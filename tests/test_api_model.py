@@ -112,8 +112,8 @@ def test_model_creation_and_reduction(
         base_position=data_full.base_position,
         base_quaternion=data_full.base_orientation,
         joint_positions=data_full.joint_positions[joint_idxs],
-        base_linear_velocity=data_full.base_velocity[0:3],
-        base_angular_velocity=data_full.base_velocity[3:6],
+        base_linear_velocity=data_full.base_velocity()[0:3],
+        base_angular_velocity=data_full.base_velocity()[3:6],
         joint_velocities=data_full.joint_velocities[joint_idxs],
         velocity_representation=data_full.velocity_representation,
     )
@@ -370,37 +370,35 @@ def test_model_jacobian(
 
     # Get the J.T @ f product in inertial-fixed input/output representation.
     # We use doubly right-trivialized jacobian with inertial-fixed 6D forces.
-    with (
-        references.switch_velocity_representation(VelRepr.Inertial),
-        data.switch_velocity_representation(VelRepr.Inertial),
-    ):
+    f = references.link_forces(
+        model=model, data=data, output_representation=VelRepr.Inertial
+    )
+    assert_allclose(f, references._link_forces)
 
-        f = references.link_forces(model=model, data=data)
-        assert_allclose(f, references._link_forces)
-
-        J = js.model.generalized_free_floating_jacobian(model=model, data=data)
-        JTf_inertial = jnp.einsum("l6g,l6->g", J, f)
+    J = js.model.generalized_free_floating_jacobian(
+        model=model, data=data, input_representation=VelRepr.Inertial
+    )
+    JTf_inertial = jnp.einsum("l6g,l6->g", J, f)
 
     for vel_repr in [VelRepr.Body, VelRepr.Mixed]:
-        with references.switch_velocity_representation(vel_repr):
+        # Get the jacobian having an inertial-fixed input representation (so that
+        # it computes the same quantity computed above) and an output representation
+        # compatible with the frame in which the external forces are expressed.
+        J = js.model.generalized_free_floating_jacobian(
+            model=model,
+            data=data,
+            input_representation=VelRepr.Inertial,
+            output_vel_repr=vel_repr,
+        )
 
-            # Get the jacobian having an inertial-fixed input representation (so that
-            # it computes the same quantity computed above) and an output representation
-            # compatible with the frame in which the external forces are expressed.
-            with data.switch_velocity_representation(VelRepr.Inertial):
-
-                J = js.model.generalized_free_floating_jacobian(
-                    model=model, data=data, output_vel_repr=vel_repr
-                )
-
-            # Get the forces in the tested representation and compute the product
-            # O_J_WL_W.T @ O_f, producing a generalized acceleration in W.
-            # The resulting acceleration can be tested again the one computed before.
-            with data.switch_velocity_representation(vel_repr):
-
-                f = references.link_forces(model=model, data=data)
-                JTf_other = jnp.einsum("l6g,l6->g", J, f)
-                assert_allclose(JTf_inertial, JTf_other, err_msg=vel_repr.name)
+        # Get the forces in the tested representation and compute the product
+        # O_J_WL_W.T @ O_f, producing a generalized acceleration in W.
+        # The resulting acceleration can be tested again the one computed before.
+        f = references.link_forces(
+            model=model, data=data, output_representation=vel_repr
+        )
+        JTf_other = jnp.einsum("l6g,l6->g", J, f)
+        assert_allclose(JTf_inertial, JTf_other, err_msg=vel_repr.name)
 
 
 def test_coriolis_matrix(
@@ -420,7 +418,7 @@ def test_coriolis_matrix(
     # Tests
     # =====
 
-    I_ν = data.generalized_velocity
+    I_ν = data.generalized_velocity()
     C = js.model.free_floating_coriolis_matrix(model=model, data=data)
 
     h = js.model.free_floating_bias_forces(model=model, data=data)
@@ -457,11 +455,8 @@ def test_coriolis_matrix(
 
     def compute_q̇(data: js.data.JaxSimModelData) -> jax.Array:
 
-        with data.switch_velocity_representation(VelRepr.Body):
-            B_ω_WB = data.base_velocity[3:6]
-
-        with data.switch_velocity_representation(VelRepr.Mixed):
-            W_ṗ_B = data.base_velocity[0:3]
+        B_ω_WB = data.base_velocity(VelRepr.Body)[3:6]
+        W_ṗ_B = data.base_velocity(VelRepr.Mixed)[0:3]
 
         W_Q̇_B = jaxsim.math.Quaternion.derivative(
             quaternion=data.base_orientation,
