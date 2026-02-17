@@ -919,7 +919,7 @@ class LinkParametrizableShape:
     Mesh: ClassVar[int] = 3
 
 
-@jax_dataclasses.pytree_dataclass
+@jax_dataclasses.pytree_dataclass(eq=False, unsafe_hash=False)
 class HwLinkMetadata(JaxsimDataclass):
     """
     Class storing the hardware parameters of a link.
@@ -934,6 +934,10 @@ class HwLinkMetadata(JaxsimDataclass):
         L_H_vis: The homogeneous transformation matrix from the link frame to the visual frame.
         L_H_pre_mask: The mask indicating the link's child joint indices.
         L_H_pre: The homogeneous transforms for child joints.
+        mesh_vertices: The original centered mesh vertices (Nx3) for mesh shapes, None otherwise.
+        mesh_faces: The mesh triangle faces (Mx3 integer indices) for mesh shapes, None otherwise.
+        mesh_offset: The original mesh centroid offset (3D vector) for mesh shapes, None otherwise.
+        mesh_uri: The path to the mesh file for reference, None otherwise.
     """
 
     link_shape: jtp.Vector
@@ -943,6 +947,10 @@ class HwLinkMetadata(JaxsimDataclass):
     L_H_vis: jtp.Matrix
     L_H_pre_mask: jtp.Vector
     L_H_pre: jtp.Matrix
+    mesh_vertices: Static[tuple[HashedNumpyArray | None, ...] | None]
+    mesh_faces: Static[tuple[HashedNumpyArray | None, ...] | None]
+    mesh_offset: Static[tuple[HashedNumpyArray | None, ...] | None]
+    mesh_uri: Static[tuple[str | None, ...] | None]
 
     @classmethod
     def empty(cls) -> HwLinkMetadata:
@@ -955,6 +963,10 @@ class HwLinkMetadata(JaxsimDataclass):
             L_H_vis=jnp.array([], dtype=float),
             L_H_pre_mask=jnp.array([], dtype=bool),
             L_H_pre=jnp.array([], dtype=float),
+            mesh_vertices=None,
+            mesh_faces=None,
+            mesh_offset=None,
+            mesh_uri=None,
         )
 
     @staticmethod
