@@ -481,6 +481,47 @@ class JaxSimModel(JaxsimDataclass):
                 mesh_faces.append(None)
                 mesh_offsets.append(None)
                 mesh_uris.append(None)
+            elif isinstance(geometry, rod.Mesh):
+                # Load and prepare mesh for parametric scaling
+                try:
+
+                    mesh_data = prepare_mesh_for_parametrization(
+                        mesh_uri=geometry.uri,
+                        scale=geometry.scale,
+                    )
+
+                    density = (
+                        mass / mesh_data["volume"] if mesh_data["volume"] > 0 else 0.0
+                    )
+
+                    # For meshes, store cumulative scale factors (initially 1.0) in geometry
+                    # instead of bounding box extents. This allows proper multiplicative scaling.
+                    geom = [1.0, 1.0, 1.0]
+                    shape = LinkParametrizableShape.Mesh
+
+                    # Store mesh data
+                    mesh_vertices.append(mesh_data["vertices"])
+                    mesh_faces.append(mesh_data["faces"])
+                    mesh_offsets.append(mesh_data["offset"])
+                    mesh_uris.append(mesh_data["uri"])
+
+                    logging.info(
+                        f"Loaded mesh for link '{link_name}': "
+                        f"{len(mesh_data['vertices'])} vertices, "
+                        f"{len(mesh_data['faces'])} faces, "
+                    )
+                except Exception as e:
+                    logging.warning(
+                        f"Failed to load mesh for link '{link_name}': {e}. "
+                        f"Marking as unsupported."
+                    )
+                    density = 0.0
+                    geom = [0, 0, 0]
+                    shape = LinkParametrizableShape.Unsupported
+                    mesh_vertices.append(None)
+                    mesh_faces.append(None)
+                    mesh_offsets.append(None)
+                    mesh_uris.append(None)
             else:
                 logging.debug(
                     f"Skipping link '{link_name}' for hardware parametrization due to unsupported geometry."
@@ -527,6 +568,13 @@ class JaxSimModel(JaxsimDataclass):
             return HwLinkMetadata.empty()
 
         # Stack collected data into JAX arrays
+        # Handle L_H_pre specially: ensure shape (n_links, n_joints, 4, 4) even when n_joints=0
+        L_H_pre_array = jnp.array(L_H_pre, dtype=float)
+        if self.number_of_joints() == 0:
+            # Reshape from (n_links, 0) to (n_links, 0, 4, 4)
+            n_links = len(L_H_pre)
+            L_H_pre_array = L_H_pre_array.reshape(n_links, 0, 4, 4)
+
         return HwLinkMetadata(
             link_shape=jnp.array(shapes, dtype=int),
             geometry=jnp.array(geoms, dtype=float),
@@ -534,7 +582,34 @@ class JaxSimModel(JaxsimDataclass):
             L_H_G=jnp.array(L_H_Gs, dtype=float),
             L_H_vis=jnp.array(L_H_vises, dtype=float),
             L_H_pre_mask=jnp.array(L_H_pre_masks, dtype=bool),
-            L_H_pre=jnp.array(L_H_pre, dtype=float),
+            L_H_pre=L_H_pre_array,
+            mesh_vertices=(
+                tuple(
+                    wrappers.HashedNumpyArray(array=v) if v is not None else None
+                    for v in mesh_vertices
+                )
+                if any(v is not None for v in mesh_vertices)
+                else None
+            ),
+            mesh_faces=(
+                tuple(
+                    wrappers.HashedNumpyArray(array=f) if f is not None else None
+                    for f in mesh_faces
+                )
+                if any(f is not None for f in mesh_faces)
+                else None
+            ),
+            mesh_offset=(
+                tuple(
+                    wrappers.HashedNumpyArray(array=o) if o is not None else None
+                    for o in mesh_offsets
+                )
+                if any(o is not None for o in mesh_offsets)
+                else None
+            ),
+            mesh_uri=(
+                tuple(mesh_uris) if any(u is not None for u in mesh_uris) else None
+            ),
         )
 
     def export_updated_model(self) -> str:
