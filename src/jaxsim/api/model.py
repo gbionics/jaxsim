@@ -432,7 +432,8 @@ class JaxSimModel(JaxsimDataclass):
                         v
                         for v in rod_link.visuals()
                         if isinstance(
-                            v.geometry.geometry(), (rod.Box, rod.Sphere, rod.Cylinder)
+                            v.geometry.geometry(),
+                            (rod.Box, rod.Sphere, rod.Cylinder, rod.Mesh),
                         )
                     ),
                     None,
