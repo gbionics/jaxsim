@@ -87,11 +87,11 @@ class ModelDescription(KinematicGraph):
         # lumped link that replace the combination of the removed link and its parent.
         for collision_shape in collisions:
 
-            # Get all the collidable points of the shape
-            coll_points = tuple(collision_shape.collidable_points)
-
             # Assume they have an unique parent link
-            if not len(set({cp.parent_link.name for cp in coll_points})) == 1:
+            if (
+                len({cp.parent_link.name for cp in collision_shape.collidable_points})
+                != 1
+            ):
                 msg = "Collision shape not currently supported (multiple parent links)"
                 raise RuntimeError(msg)
 
@@ -171,7 +171,7 @@ class ModelDescription(KinematicGraph):
             "order of the joints, or use the `joint_names()` method to inspect the internal joint ordering."
         )
 
-        if len(set(considered_joints) - set(self.joint_names())) != 0:
+        if set(considered_joints) - set(self.joint_names()):
             extra_joints = set(considered_joints) - set(self.joint_names())
             msg = f"Found joints not part of the model: {extra_joints}"
             raise ValueError(msg)
@@ -181,7 +181,7 @@ class ModelDescription(KinematicGraph):
             links=list(self.links_dict.values()),
             joints=self.joints,
             frames=self.frames,
-            collisions=tuple(self.collision_shapes),
+            collisions=self.collision_shapes,
             fixed_base=self.fixed_base,
             base_link_name=next(iter(self)).name,
             model_pose=self.root_pose,

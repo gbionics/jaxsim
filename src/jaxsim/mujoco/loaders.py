@@ -1,4 +1,3 @@
-import os
 import pathlib
 import tempfile
 import warnings
@@ -257,7 +256,7 @@ class RodModelToMjcf:
 
         # If considered joints are passed, make sure that they are all part of the model.
         if considered_joints - {j.name for j in rod_model.joints()}:
-            extra_joints = set(considered_joints) - {j.name for j in rod_model.joints()}
+            extra_joints = considered_joints - {j.name for j in rod_model.joints()}
 
             msg = f"Couldn't find the following joints in the model: '{extra_joints}'"
             raise ValueError(msg)
@@ -374,7 +373,7 @@ class RodModelToMjcf:
             tree = ET.parse(source=temp_filename, parser=parser)
 
         finally:
-            os.remove(temp_filename)
+            pathlib.Path(temp_filename).unlink()
 
         # Get the root element.
         root: ET._Element = tree.getroot()
@@ -502,8 +501,8 @@ class RodModelToMjcf:
                 asset_element,
                 "hfield",
                 name="terrain",
-                nrow=f"{int(heightmap_samples_xy[0])}",
-                ncol=f"{int(heightmap_samples_xy[1])}",
+                nrow=str(int(heightmap_samples_xy[0])),
+                ncol=str(int(heightmap_samples_xy[1])),
                 # The following 'size' is a placeholder, it is updated dynamically
                 # when a hfield/heightmap is stored into MjData.
                 size="1 1 1 1",

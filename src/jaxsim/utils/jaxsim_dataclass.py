@@ -80,7 +80,7 @@ class JaxsimDataclass(abc.ABC):
         original_dtypes = JaxsimDataclass.get_leaf_dtypes(tree=self)
         original_shapes = JaxsimDataclass.get_leaf_shapes(tree=self)
         original_weak_types = JaxsimDataclass.get_leaf_weak_types(tree=self)
-        original_structure = jax.tree_util.tree_structure(tree=self)
+        original_structure = jax.tree.structure(tree=self)
 
         def restore_self() -> None:
             self.set_mutability(mutability=Mutability.MUTABLE_NO_VALIDATION)
@@ -92,7 +92,7 @@ class JaxsimDataclass(abc.ABC):
             yield self
 
             if mutability is not Mutability.MUTABLE_NO_VALIDATION:
-                new_structure = jax.tree_util.tree_structure(tree=self)
+                new_structure = jax.tree.structure(tree=self)
                 if original_structure != new_structure:
                     msg = "Pytree structure has changed from {} to {}"
                     raise ValueError(msg.format(original_structure, new_structure))
@@ -137,7 +137,7 @@ class JaxsimDataclass(abc.ABC):
         return tuple(
             map(
                 lambda leaf: getattr(leaf, "shape", None),
-                jax.tree_util.tree_leaves(tree),
+                jax.tree.leaves(tree),
             )
         )
 
@@ -157,7 +157,7 @@ class JaxsimDataclass(abc.ABC):
         return tuple(
             map(
                 lambda leaf: getattr(leaf, "dtype", None),
-                jax.tree_util.tree_leaves(tree),
+                jax.tree.leaves(tree),
             )
         )
 
@@ -176,7 +176,7 @@ class JaxsimDataclass(abc.ABC):
         return tuple(
             map(
                 lambda leaf: getattr(leaf, "weak_type", None),
-                jax.tree_util.tree_leaves(tree),
+                jax.tree.leaves(tree),
             )
         )
 
@@ -192,11 +192,11 @@ class JaxsimDataclass(abc.ABC):
             ValueError: If the PyTrees have incompatible structures, shapes, or dtypes.
         """
 
-        target_structure = jax.tree_util.tree_structure(trees[0])
+        target_structure = jax.tree.structure(trees[0])
 
         compatible_structure = functools.reduce(
             lambda compatible, tree: compatible
-            and jax.tree_util.tree_structure(tree) == target_structure,
+            and jax.tree.structure(tree) == target_structure,
             trees[1:],
             True,
         )
@@ -204,7 +204,7 @@ class JaxsimDataclass(abc.ABC):
         if not compatible_structure:
             raise ValueError(
                 f"Pytrees have incompatible structures.\n"
-                f"Original: {', '.join(map(str, [jax.tree_util.tree_structure(tree) for tree in trees[1:]]))}\n"
+                f"Original: {', '.join(map(str, [jax.tree.structure(tree) for tree in trees[1:]]))}\n"
                 f"Target: {target_structure}"
             )
 

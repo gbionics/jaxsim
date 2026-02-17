@@ -41,11 +41,11 @@ def test_update_hw_link_parameters(jaxsim_model_garpez: js.model.JaxSimModel):
 
     # Compare updated hardware parameters
     for link_idx, link_name in enumerate(model.link_names()):
-        updated_metadata = jax.tree_util.tree_map(
+        updated_metadata = jax.tree.map(
             lambda x, link_idx=link_idx: x[link_idx],
             updated_model.kin_dyn_parameters.hw_link_metadata,
         )
-        initial_metadata_link = jax.tree_util.tree_map(
+        initial_metadata_link = jax.tree.map(
             lambda x, link_idx=link_idx: x[link_idx], initial_metadata
         )
 
@@ -159,7 +159,7 @@ def test_update_hw_parameters_vmap(
     ]
 
     # Convert the list of ScalingFactors to a JAX array of pytrees
-    scaling_factors = jax.tree_util.tree_map(lambda *x: jnp.stack(x), *scaling_factors)
+    scaling_factors = jax.tree.map(lambda *l: jnp.stack(l), *scaling_factors)
 
     # Generate a batch of updated models using vmap
     updated_models = jax.vmap(js.model.update_hw_parameters, in_axes=(None, 0))(
@@ -313,10 +313,10 @@ def test_export_updated_model(
             compare_collisions(exported_link, ref_link, label=label)
 
     # Test both scaled and identity-scaled updates
-    for scaling, label in [
+    for scaling, label in (
         (scaling_parameters, "SCALED"),
         (identity_scaling, "IDENTITY SCALED"),
-    ]:
+    ):
         # Load reference ROD model
         if label == "IDENTITY SCALED":
             ref_model = rod.Sdf.load(jaxsim_model_garpez.built_from).models()[0]
@@ -509,7 +509,7 @@ def test_unsupported_link_cases():
     no_visual_metadata = no_visual_model.kin_dyn_parameters.hw_link_metadata
     empty_metadata = HwLinkMetadata.empty()
     comparison = jax.tree.map(
-        lambda a, b: jnp.allclose(a, b),
+        jnp.allclose,
         no_visual_metadata,
         empty_metadata,
     )

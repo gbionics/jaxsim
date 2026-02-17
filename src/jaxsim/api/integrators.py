@@ -137,10 +137,10 @@ def rk4_integration(
     # Average the slopes and compute the RK4 state derivative.
     average = lambda k1, k2, k3, k4: (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
-    dxdt = jax.tree_util.tree_map(average, k1, k2, k3, k4)
+    dxdt = jax.tree.map(average, k1, k2, k3, k4)
 
     # Integrate the dynamics
-    x_tf = jax.tree_util.tree_map(euler_fin, x_t0, dxdt)
+    x_tf = jax.tree.map(euler_fin, x_t0, dxdt)
 
     data_tf = dataclasses.replace(
         data,
@@ -244,10 +244,10 @@ def rk4fast_integration(
     # Average the slopes and compute the RK4 state derivative.
     average = lambda k1, k2, k3, k4: (k1 + 2 * k2 + 2 * k3 + k4) / 6
 
-    dxdt = jax.tree_util.tree_map(average, k1, k2, k3, k4)
+    dxdt = jax.tree.map(average, k1, k2, k3, k4)
 
     # Integrate the dynamics
-    x_tf = jax.tree_util.tree_map(euler_fin, x_t0, dxdt)
+    x_tf = jax.tree.map(euler_fin, x_t0, dxdt)
 
     data_tf = dataclasses.replace(
         data,

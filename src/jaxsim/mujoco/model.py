@@ -193,7 +193,7 @@ class MujocoModelHelper:
         return (
             (
                 np.reshape(self.data.xmat[0], newshape=(3, 3))
-                if dcm is True
+                if dcm
                 else self.data.xquat[0]
             )
             if self.is_floating_base()

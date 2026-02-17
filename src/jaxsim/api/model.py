@@ -415,7 +415,7 @@ class JaxSimModel(JaxsimDataclass):
             if not jnp.allclose(
                 self.kin_dyn_parameters.joint_model.suc_H_i[link_index],
                 jnp.eye(4),
-                **(dict(atol=1e-6) if not jax.config.jax_enable_x64 else dict()),
+                **(dict(atol=1e-6) if not jax.config.jax_enable_x64 else {}),
             ):
                 logging.debug(
                     f"Skipping link '{link_name}' for hardware parametrization due to unsupported suc_H_link."
