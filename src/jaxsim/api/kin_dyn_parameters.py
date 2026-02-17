@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+from itertools import starmap
 from typing import ClassVar
 
 import jax.lax
@@ -143,7 +144,7 @@ class KinDynParameters(JaxsimDataclass):
         # Create a vectorized object of joint parameters.
         joint_parameters = (
             jax.tree.map(lambda *l: jnp.stack(l), *joint_parameters_list)
-            if len(ordered_joints) > 0
+            if ordered_joints
             else JointParameters(
                 index=jnp.array([], dtype=int),
                 friction_static=jnp.array([], dtype=float),
@@ -245,14 +246,14 @@ class KinDynParameters(JaxsimDataclass):
 
             return S[joint_type]
 
-        S_J = (
-            jnp.array(
-                [
-                    motion_subspace(joint_type, axis)
-                    for joint_type, axis in zip(
+        S_J = jnp.array(
+            list(
+                starmap(
+                    motion_subspace,
+                    zip(
                         joint_model.joint_types[1:], joint_model.joint_axis, strict=True
-                    )
-                ]
+                    ),
+                )
             )
             if len(joint_model.joint_axis) != 0
             else jnp.empty((0, 6, 1))

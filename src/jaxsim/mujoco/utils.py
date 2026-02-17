@@ -218,7 +218,7 @@ class MujocoCamera:
         return MujocoCamera.build(
             name=camera_name,
             mode=mode,
-            fovy=f"{fovy if degrees else np.rad2deg(fovy)}",
+            fovy=str(fovy if degrees else np.rad2deg(fovy)),
             pos=" ".join(p.astype(str).tolist()),
             quat=" ".join(Q.astype(str).tolist()),
             **kwargs,

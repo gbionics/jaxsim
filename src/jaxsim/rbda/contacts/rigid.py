@@ -139,7 +139,7 @@ class RigidContacts(ContactModel):
             The `RigidContacts` instance.
         """
 
-        if len(kwargs) != 0:
+        if kwargs:
             logging.warning(msg=f"Ignoring extra arguments: {kwargs}")
 
         # Get the default solver options.

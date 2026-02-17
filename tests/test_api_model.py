@@ -381,7 +381,7 @@ def test_model_jacobian(
         J = js.model.generalized_free_floating_jacobian(model=model, data=data)
         JTf_inertial = jnp.einsum("l6g,l6->g", J, f)
 
-    for vel_repr in [VelRepr.Body, VelRepr.Mixed]:
+    for vel_repr in (VelRepr.Body, VelRepr.Mixed):
         with references.switch_velocity_representation(vel_repr):
 
             # Get the jacobian having an inertial-fixed input representation (so that

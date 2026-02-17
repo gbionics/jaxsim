@@ -153,7 +153,7 @@ class KinematicGraph(Sequence[LinkDescription]):
         # have last_link_idx + 1.
         for index, frame in enumerate(self.frames):
             with frame.mutable_context(mutability=Mutability.MUTABLE_NO_VALIDATION):
-                frame.index = int(index + len(self.link_names()))
+                frame.index = index + len(self.link_names())
 
         # Number joints so that their index matches their child link index.
         # Therefore, the first joint has index 1.
@@ -406,7 +406,7 @@ class KinematicGraph(Sequence[LinkDescription]):
             return copy.deepcopy(self)
 
         # Check if all considered joints are part of the full kinematic graph
-        if len(set(considered_joints) - {j.name for j in full_graph.joints}) != 0:
+        if set(considered_joints) - {j.name for j in full_graph.joints}:
             extra_j = set(considered_joints) - {j.name for j in full_graph.joints}
             msg = f"Not all joints to consider are part of the graph ({{{extra_j}}})"
             raise ValueError(msg)
@@ -691,7 +691,7 @@ class KinematicGraph(Sequence[LinkDescription]):
 
         yield root
 
-        while len(queue) > 0:
+        while queue:
 
             # Extract the first element of the queue.
             l = queue.pop(0)

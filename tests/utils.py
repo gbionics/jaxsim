@@ -156,9 +156,9 @@ class KinDynComputations:
 
         # Handle removed_joint_positions if None.
         removed_joint_positions = (
-            {str(name): float(pos) for name, pos in removed_joint_positions.items()}
+            {name: float(pos) for name, pos in removed_joint_positions.items()}
             if removed_joint_positions is not None
-            else dict()
+            else {}
         )
 
         # Load the URDF description.

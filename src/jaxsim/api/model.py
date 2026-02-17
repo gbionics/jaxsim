@@ -415,7 +415,7 @@ class JaxSimModel(JaxsimDataclass):
             if not jnp.allclose(
                 self.kin_dyn_parameters.joint_model.suc_H_i[link_index],
                 jnp.eye(4),
-                **(dict(atol=1e-6) if not jax.config.jax_enable_x64 else dict()),
+                **(dict(atol=1e-6) if not jax.config.jax_enable_x64 else {}),
             ):
                 logging.debug(
                     f"Skipping link '{link_name}' for hardware parametrization due to unsupported suc_H_link."
@@ -578,37 +578,41 @@ class JaxSimModel(JaxsimDataclass):
                 inertia_tensor=inertia_tensor, validate=True
             )
 
-            # Update visual shape
+            # Update visuals and collisions
             dims = hw_metadata.geometry[link_index]
-            if shape == LinkParametrizableShape.Box:
-                links_dict[link_name].visual.geometry.box.size = dims.tolist()
-                links_dict[link_name].collision.geometry.box.size = dims.tolist()
-            elif shape == LinkParametrizableShape.Sphere:
-                links_dict[link_name].visual.geometry.sphere.radius = float(dims[0])
-                links_dict[link_name].collision.geometry.sphere.radius = float(dims[0])
-            elif shape == LinkParametrizableShape.Cylinder:
-                links_dict[link_name].visual.geometry.cylinder.radius = float(dims[0])
-                links_dict[link_name].visual.geometry.cylinder.length = float(dims[1])
-                links_dict[link_name].collision.geometry.cylinder.radius = float(
-                    dims[0]
-                )
-                links_dict[link_name].collision.geometry.cylinder.length = float(
-                    dims[1]
-                )
-            else:
-                logging.debug(f"Skipping unsupported shape for link '{link_name}'")
-                continue
 
-            # Update visual pose
-            links_dict[link_name].visual.pose = rod.Pose.from_transform(
+            elements_to_update = (
+                links_dict[link_name].visual,
+                links_dict[link_name].collision,
+            )
+
+            element_pose = rod.Pose.from_transform(
                 transform=np.array(hw_metadata.L_H_vis[link_index]),
                 relative_to=link_name,
             )
 
-            links_dict[link_name].collision.pose = rod.Pose.from_transform(
-                transform=np.array(hw_metadata.L_H_vis[link_index]),
-                relative_to=link_name,
-            )
+            for element in elements_to_update:
+                if element is None:
+                    continue
+
+                # Update geometry
+                if shape == LinkParametrizableShape.Box:
+                    element.geometry.box.size = dims.tolist()
+                elif shape == LinkParametrizableShape.Sphere:
+                    element.geometry.sphere.radius = float(dims[0])
+                elif shape == LinkParametrizableShape.Cylinder:
+                    element.geometry.cylinder.radius = float(dims[0])
+                    element.geometry.cylinder.length = float(dims[1])
+                else:
+                    # This branch should be unreachable. Unsupported shapes should be
+                    # filtered out above.
+                    raise RuntimeError(
+                        f"Unexpected shape {shape} for link '{link_name}'. "
+                        "This should never be hit."
+                    )
+
+                # Update pose
+                element.pose = element_pose
 
             # Update joint poses
             for joint_index in range(self.number_of_joints()):
