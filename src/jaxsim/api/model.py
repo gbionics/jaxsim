@@ -604,8 +604,12 @@ class JaxSimModel(JaxsimDataclass):
                     element.geometry.cylinder.radius = float(dims[0])
                     element.geometry.cylinder.length = float(dims[1])
                 else:
-                    logging.debug(f"Skipping unsupported shape for link '{link_name}'")
-                    continue
+                    # This branch should be unreachable. Unsupported shapes should be
+                    # filtered out above.
+                    raise RuntimeError(
+                        f"Unexpected shape {shape} for link '{link_name}'. "
+                        "This should never be hit."
+                    )
 
                 # Update pose
                 element.pose = element_pose
