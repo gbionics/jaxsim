@@ -916,6 +916,7 @@ class LinkParametrizableShape:
     Box: ClassVar[int] = 0
     Cylinder: ClassVar[int] = 1
     Sphere: ClassVar[int] = 2
+    Mesh: ClassVar[int] = 3
 
 
 @jax_dataclasses.pytree_dataclass
@@ -925,9 +926,9 @@ class HwLinkMetadata(JaxsimDataclass):
 
     Attributes:
         link_shape: The shape of the link.
-            0 = box, 1 = cylinder, 2 = sphere, -1 = unsupported.
+            0 = box, 1 = cylinder, 2 = sphere, 3 = mesh, -1 = unsupported.
         geometry: The dimensions of the link.
-            box: [lx,ly,lz], cylinder: [r,l,0], sphere: [r,0,0].
+            box: [lx,ly,lz], cylinder: [r,l,0], sphere: [r,0,0], mesh: [lx,ly,lz] (bounding box).
         density: The density of the link.
         L_H_G: The homogeneous transformation matrix from the link frame to the CoM frame G.
         L_H_vis: The homogeneous transformation matrix from the link frame to the visual frame.
@@ -1034,7 +1035,7 @@ class HwLinkMetadata(JaxsimDataclass):
         Convert scaling factors for specific shape dimensions into a 3D scaling vector.
 
         Args:
-            link_shapes: The link_shapes of the link (e.g., box, sphere, cylinder).
+            link_shapes: The link_shapes of the link (e.g., box, sphere, cylinder, mesh).
             scaling_factors: The scaling factors for the shape dimensions.
 
         Returns:
@@ -1045,17 +1046,20 @@ class HwLinkMetadata(JaxsimDataclass):
             - Box: [lx, ly, lz]
             - Cylinder: [r, r, l]
             - Sphere: [r, r, r]
+            - Mesh: [sx, sy, sz]
         """
 
         # Index mapping for each shape type (link_shapes x 3 dims)
         # Box: [lx, ly, lz] -> [0, 1, 2]
         # Cylinder: [r, r, l] -> [0, 0, 1]
         # Sphere: [r, r, r] -> [0, 0, 0]
+        # Mesh: [sx, sy, sz] -> [0, 1, 2]
         shape_indices = jnp.array(
             [
                 [0, 1, 2],  # Box
                 [0, 0, 1],  # Cylinder
                 [0, 0, 0],  # Sphere
+                [0, 1, 2],  # Mesh
             ]
         )
 
@@ -1117,9 +1121,20 @@ class HwLinkMetadata(JaxsimDataclass):
                 ]
             )
 
+        def mesh(parent_idx, L_p_C):
+            # Element-wise scaling like box
+            sx, sy, sz = scaling_factors.dims[parent_idx]
+            return jnp.hstack(
+                [
+                    L_p_C[0] * sx,
+                    L_p_C[1] * sy,
+                    L_p_C[2] * sz,
+                ]
+            )
+
         new_positions = jax.vmap(
             lambda shape_idx, parent_idx, L_p_C: jax.lax.switch(
-                shape_idx, (box, cylinder, sphere), parent_idx, L_p_C
+                shape_idx, (box, cylinder, sphere, mesh), parent_idx, L_p_C
             )
         )(
             parent_link_shapes,
