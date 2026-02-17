@@ -2591,21 +2591,110 @@ def update_hw_parameters(
 
     has_joints = model.number_of_joints() > 0
 
-    supported_case = lambda hw_metadata, scaling_factors: HwLinkMetadata.apply_scaling(
-        hw_metadata=hw_metadata, scaling_factors=scaling_factors, has_joints=has_joints
-    )
-    unsupported_case = lambda hw_metadata, scaling_factors: hw_metadata
+    # Apply scaling using vectorized operations on non-Static fields
+    # This avoids Python loops while respecting Static mesh data
 
-    # Apply scaling to hw_link_metadata using vmap
-    updated_hw_link_metadata = jax.vmap(
-        lambda hw_metadata, multipliers: jax.lax.cond(
-            hw_metadata.link_shape == LinkParametrizableShape.Unsupported,
-            unsupported_case,
-            supported_case,
-            hw_metadata,
-            multipliers,
+    # Helper function to apply scaling to a single link's data
+    def apply_scaling_single_link(
+        link_shape,
+        geometry,
+        density,
+        L_H_G,
+        L_H_vis,
+        L_H_pre,
+        L_H_pre_mask,
+        scaling_dims,
+        scaling_density,
+    ):
+        """Apply scaling to a single link's numerical data."""
+        # Compute scale vector
+        shape_indices_map = jnp.array([[0, 1, 2], [0, 0, 1], [0, 0, 0], [0, 1, 2]])
+        per_link_indices = shape_indices_map[link_shape]
+        scale_vector = scaling_dims[per_link_indices]
+
+        # Update kinematics
+        G_H_L = jaxsim.math.Transform.inverse(L_H_G)
+        G_H_vis = G_H_L @ L_H_vis
+        G_H̅_vis = G_H_vis.at[:3, 3].set(scale_vector * G_H_vis[:3, 3])
+        L_H̅_G = L_H_G.at[:3, 3].set(scale_vector * L_H_G[:3, 3])
+        L_H̅_vis = L_H̅_G @ G_H̅_vis
+
+        # Update shape parameters
+        updated_geom = geometry * scaling_dims
+        updated_dens = density * scaling_density
+
+        return updated_geom, updated_dens, L_H̅_G, L_H̅_vis, scale_vector
+
+    # Vmap over all links for basic scaling
+    (
+        updated_geometry,
+        updated_density,
+        updated_L_H_G,
+        updated_L_H_vis,
+        scale_vectors,
+    ) = jax.vmap(apply_scaling_single_link)(
+        hw_link_metadata.link_shape,
+        hw_link_metadata.geometry,
+        hw_link_metadata.density,
+        hw_link_metadata.L_H_G,
+        hw_link_metadata.L_H_vis,
+        hw_link_metadata.L_H_pre,
+        hw_link_metadata.L_H_pre_mask,
+        scaling_factors.dims,
+        scaling_factors.density,
+    )
+
+    # Handle joint transforms separately, only if model has joints
+    def transform_all_joints(operands):
+        """Transform all joint poses across all links."""
+        updated_L_H_G, scale_vectors, L_H_pre, L_H_pre_mask = operands
+
+        # Vectorized transformation: (n_links, n_joints, 4, 4)
+        G_H_L_all = jax.vmap(jaxsim.math.Transform.inverse)(
+            updated_L_H_G
+        )  # (n_links, 4, 4)
+
+        # Use batch matrix multiply with broadcasting
+        # G_H_L_all: (n_links, 4, 4) -> (n_links, 1, 4, 4)
+        # L_H_pre: (n_links, n_joints, 4, 4)
+        # Result: (n_links, n_joints, 4, 4)
+        G_H_pre = G_H_L_all[:, None, :, :] @ L_H_pre
+
+        # Scale translation components
+        G_H̅_pre = G_H_pre.at[:, :, :3, 3].set(
+            jnp.where(
+                L_H_pre_mask[:, :, None],
+                scale_vectors[:, None, :] * G_H_pre[:, :, :3, 3],
+                G_H_pre[:, :, :3, 3],
+            )
         )
-    )(hw_link_metadata, scaling_factors)
+
+        # Transform back to link frames
+        # updated_L_H_G: (n_links, 4, 4) -> (n_links, 1, 4, 4)
+        # G_H̅_pre: (n_links, n_joints, 4, 4)
+        # Result: (n_links, n_joints, 4, 4)
+        return updated_L_H_G[:, None, :, :] @ G_H̅_pre
+
+    updated_L_H_pre = jax.lax.cond(
+        has_joints,
+        transform_all_joints,
+        lambda operands: operands[2],  # Return L_H_pre unchanged
+        operand=(
+            updated_L_H_G,
+            scale_vectors,
+            hw_link_metadata.L_H_pre,
+            hw_link_metadata.L_H_pre_mask,
+        ),
+    )
+
+    # Create updated HwLinkMetadata (Static fields unchanged)
+    updated_hw_link_metadata = hw_link_metadata.replace(
+        geometry=updated_geometry,
+        density=updated_density,
+        L_H_G=updated_L_H_G,
+        L_H_vis=updated_L_H_vis,
+        L_H_pre=updated_L_H_pre,
+    )
 
     # Compute mass and inertia once and unpack the results
     m_updated, I_com_updated = HwLinkMetadata.compute_mass_and_inertia(
