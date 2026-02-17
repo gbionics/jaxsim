@@ -586,6 +586,11 @@ class JaxSimModel(JaxsimDataclass):
                 links_dict[link_name].collision,
             )
 
+            element_pose = rod.Pose.from_transform(
+                transform=np.array(hw_metadata.L_H_vis[link_index]),
+                relative_to=link_name,
+            )
+
             for element in elements_to_update:
                 if element is None:
                     continue
@@ -603,10 +608,7 @@ class JaxSimModel(JaxsimDataclass):
                     continue
 
                 # Update pose
-                element.pose = rod.Pose.from_transform(
-                    transform=np.array(hw_metadata.L_H_vis[link_index]),
-                    relative_to=link_name,
-                )
+                element.pose = element_pose
 
             # Update joint poses
             for joint_index in range(self.number_of_joints()):

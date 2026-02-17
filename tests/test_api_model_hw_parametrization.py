@@ -759,3 +759,104 @@ def test_export_continuous_joint_handling():
     assert (
         linear_limit.get("upper") is not None
     ), "prismatic joint should have upper limit"
+
+
+def test_export_model_with_missing_collision(
+    jaxsim_model_missing_collision: js.model.JaxSimModel,
+):
+    """
+    Test that export_updated_model() works correctly when a link has a visual
+    but is missing a collision element.
+
+    This validates the skip logic that handles None collision elements.
+    """
+
+    model = jaxsim_model_missing_collision
+
+    # Define scaling parameters to modify the model
+    scaling_parameters = ScalingFactors(
+        dims=jnp.array(
+            [
+                [1.5, 1.0, 1.0],  # Scale x-dimension for link1 (has collision)
+                [2.0, 1.0, 1.0],  # Scale radius for link2 (missing collision)
+            ]
+        ),
+        density=jnp.ones(2),
+    )
+
+    # Update the model with scaling parameters
+    updated_model = js.model.update_hw_parameters(model, scaling_parameters)
+
+    # Export the updated model - this should NOT fail even though link2 is missing collision
+    exported_urdf = updated_model.export_updated_model()
+
+    # Verify basic structure of exported URDF
+    assert isinstance(exported_urdf, str), "Exported URDF should be a string"
+    assert len(exported_urdf) > 0, "Exported URDF should not be empty"
+
+    # Parse the exported URDF to verify it's valid XML
+    root = ET.fromstring(exported_urdf)
+    assert root.tag == "robot", "Root element should be 'robot'"
+
+    # Find both links in the exported model
+    links = {link.get("name"): link for link in root.findall(".//link")}
+    assert "link1" in links, "link1 should exist in exported model"
+    assert "link2" in links, "link2 should exist in exported model"
+
+    # Verify link1 has both visual and collision
+    link1 = links["link1"]
+    link1_visual = link1.find("visual")
+    link1_collision = link1.find("collision")
+    assert link1_visual is not None, "link1 should have a visual element"
+    assert link1_collision is not None, "link1 should have a collision element"
+
+    # Verify link1's geometry was updated
+    link1_visual_box = link1_visual.find(".//box")
+    assert link1_visual_box is not None, "link1 visual should have box geometry"
+    link1_size = [float(x) for x in link1_visual_box.get("size").split()]
+    # First dimension should be scaled by 1.5
+    assert_allclose(
+        link1_size[0],
+        0.3 * 1.5,
+        atol=1e-6,
+        err_msg="link1 x-dimension should be scaled",
+    )
+
+    # Verify link2 has visual but no collision
+    link2 = links["link2"]
+    link2_visual = link2.find("visual")
+    link2_collision = link2.find("collision")
+    assert link2_visual is not None, "link2 should have a visual element"
+    assert link2_collision is None, "link2 should NOT have a collision element"
+
+    # Verify link2's visual geometry was updated despite missing collision
+    link2_visual_sphere = link2_visual.find(".//sphere")
+    assert link2_visual_sphere is not None, "link2 visual should have sphere geometry"
+    link2_radius = float(link2_visual_sphere.get("radius"))
+    # Radius should be scaled by 2.0
+    assert_allclose(
+        link2_radius,
+        0.1 * 2.0,
+        atol=1e-6,
+        err_msg="link2 radius should be scaled despite missing collision",
+    )
+
+    # Load the exported model to verify it can be parsed correctly
+    exported_sdf = rod.Sdf.load(exported_urdf, is_urdf=True)
+    assert (
+        len(exported_sdf.models()) == 1
+    ), "Exported model should contain exactly one ROD model"
+
+    exported_model = exported_sdf.models()[0]
+    assert exported_model.name == model.name(), "Exported model name should match"
+
+    # Verify we can build a JaxSim model from the exported URDF
+    reimported_jaxsim_model = js.model.JaxSimModel.build_from_model_description(
+        model_description=exported_urdf, is_urdf=True
+    )
+    assert (
+        reimported_jaxsim_model is not None
+    ), "Should be able to build model from exported URDF"
+    assert (
+        reimported_jaxsim_model.number_of_links() == model.number_of_links()
+    ), "Reimported model should have same number of links"

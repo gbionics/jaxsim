@@ -707,6 +707,120 @@ def create_scalable_garpez_model(
     return rod_model
 
 
+def create_model_with_missing_collision() -> rod.Model:
+    """
+    Build a rod model with a link that has a visual but no collision element.
+
+    This model is used to test the export logic when collision elements are missing.
+
+    Returns:
+        A rod model with one link missing a collision element.
+    """
+
+    import numpy as np
+    from rod.builder import primitives
+
+    density = 1000.0  # Fixed density in kg/m^3
+
+    # Create link1 with both visual and collision
+    l1_x, l1_y, l1_z = 0.3, 0.2, 0.2
+    l1_volume = l1_x * l1_y * l1_z
+    l1_mass = density * l1_volume
+    link1_builder = primitives.BoxBuilder(
+        name="link1", mass=l1_mass, x=l1_x, y=l1_y, z=l1_z
+    )
+
+    # Create link2 with visual but WITHOUT collision
+    l2_radius = 0.1
+    l2_volume = 4 / 3 * np.pi * l2_radius**3
+    l2_mass = density * l2_volume
+    link2_builder = primitives.SphereBuilder(
+        name="link2", mass=l2_mass, radius=l2_radius
+    )
+
+    # Create joint
+    link1_to_link2 = rod.Joint(
+        name="link1_to_link2",
+        type="revolute",
+        parent=link1_builder.name,
+        child=link2_builder.name,
+        pose=primitives.PrimitiveBuilder.build_pose(
+            relative_to=link1_builder.name,
+            pos=np.array([link1_builder.x, link1_builder.y / 2, link1_builder.z / 2]),
+        ),
+        axis=rod.Axis(xyz=rod.Xyz(xyz=[0, 1, 0]), limit=rod.Limit()),
+    )
+
+    # Build link1 with visual and collision
+    link1_elements_pose = primitives.PrimitiveBuilder.build_pose(
+        pos=np.array([link1_builder.x, link1_builder.y, link1_builder.z]) / 2
+    )
+
+    link1 = (
+        link1_builder.build_link(
+            name=link1_builder.name,
+            pose=primitives.PrimitiveBuilder.build_pose(relative_to="__model__"),
+        )
+        .add_inertial(pose=link1_elements_pose)
+        .add_visual(pose=link1_elements_pose)
+        .add_collision(pose=link1_elements_pose)
+        .build()
+    )
+
+    # Build link2 with visual but NO collision
+    link2_elements_pose = primitives.PrimitiveBuilder.build_pose(
+        pos=np.array([link2_builder.radius, 0, 0])
+    )
+
+    link2 = (
+        link2_builder.build_link(
+            name=link2_builder.name,
+            pose=primitives.PrimitiveBuilder.build_pose(
+                relative_to=link1_to_link2.name
+            ),
+        )
+        .add_inertial(pose=link2_elements_pose)
+        .add_visual(pose=link2_elements_pose)
+        # Note: NO .add_collision() call here
+        .build()
+    )
+
+    # Create model
+    rod_model = rod.Model(
+        name="model_missing_collision",
+        canonical_link=link1.name,
+        link=[link1, link2],
+        joint=[link1_to_link2],
+    )
+
+    rod_model.switch_frame_convention(
+        frame_convention=rod.FrameConvention.Urdf,
+        explicit_frames=True,
+        attach_frames_to_links=True,
+    )
+
+    assert rod.Sdf(model=rod_model, version="1.10").serialize(validate=True)
+
+    return rod_model
+
+
+@pytest.fixture(scope="session")
+def jaxsim_model_missing_collision() -> js.model.JaxSimModel:
+    """
+    Fixture to create a model with a link that has a visual but no collision element.
+
+    This is used to test the export logic when collision elements are missing.
+    """
+
+    rod_model = create_model_with_missing_collision()
+
+    urdf_string = rod.urdf.exporter.UrdfExporter(pretty=True).to_urdf_string(
+        sdf=rod_model
+    )
+
+    return build_jaxsim_model(model_description=urdf_string)
+
+
 @pytest.fixture(scope="session")
 def jaxsim_model_double_pendulum() -> js.model.JaxSimModel:
     """
