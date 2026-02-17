@@ -581,12 +581,12 @@ class JaxSimModel(JaxsimDataclass):
             # Update visuals and collisions
             dims = hw_metadata.geometry[link_index]
 
-            elements_to_update = {
-                "visual": links_dict[link_name].visual,
-                "collision": links_dict[link_name].collision,
-            }
+            elements_to_update = (
+                links_dict[link_name].visual,
+                links_dict[link_name].collision,
+            )
 
-            for attr_name, element in elements_to_update.items():
+            for element in elements_to_update:
                 if element is None:
                     continue
 
