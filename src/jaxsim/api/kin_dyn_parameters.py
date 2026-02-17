@@ -970,6 +970,63 @@ class HwLinkMetadata(JaxsimDataclass):
         )
 
     @staticmethod
+    def compute_mesh_inertia(
+        vertices: jtp.Matrix, faces: jtp.Matrix, density: jtp.Float
+    ) -> tuple[jtp.Float, jtp.Vector, jtp.Matrix]:
+        """
+        Compute mass, center of mass, and inertia tensor from mesh geometry.
+
+        Uses the divergence theorem to compute volumetric properties by integrating
+        over tetrahedra formed between the mesh surface and the origin.
+
+        Args:
+            vertices: Mesh vertices (Nx3) in the link frame, should be centered.
+            faces: Triangle face indices (Mx3), integer indices into vertices array.
+            density: Material density.
+
+        Returns:
+            A tuple containing the computed mass, the CoM position and the 3x3
+            inertia tensor at the CoM.
+        """
+
+        # Extract triangles from vertices using face indices
+        triangles = vertices[faces.astype(int)]
+        A, B, C = triangles[:, 0], triangles[:, 1], triangles[:, 2]
+
+        # Compute signed volume of tetrahedra relative to origin
+        # vol = 1/6 * (A . (B x C))
+        tetrahedron_volumes = jnp.sum(A * jnp.cross(B, C), axis=1) / 6.0
+
+        total_volume = jnp.sum(tetrahedron_volumes)
+        mass = total_volume * density
+
+        # Compute center of mass
+        tet_coms = (A + B + C) / 4.0
+        com_position = (
+            jnp.sum(tet_coms * tetrahedron_volumes[:, None], axis=0) / total_volume
+        )
+
+        # Compute inertia tensor with covariance approach
+        def compute_tetrahedron_covariance(a, b, c, vol):
+            s = a + b + c
+            return (vol / 20.0) * (
+                jnp.outer(a, a) + jnp.outer(b, b) + jnp.outer(c, c) + jnp.outer(s, s)
+            )
+
+        covariance_matrices = jax.vmap(compute_tetrahedron_covariance)(
+            A, B, C, tetrahedron_volumes
+        )
+        Σ_origin = jnp.sum(covariance_matrices, axis=0)
+
+        # Shift to CoM using parallel axis theorem
+        Σ_com = Σ_origin * density - mass * jnp.outer(com_position, com_position)
+
+        # Convert covariance to inertia tensor
+        I_com = jnp.trace(Σ_com) * jnp.eye(3) - Σ_com
+
+        return mass, com_position, I_com
+
+    @staticmethod
     def compute_mass_and_inertia(
         hw_link_metadata: HwLinkMetadata,
     ) -> tuple[jtp.Float, jtp.Matrix]:
