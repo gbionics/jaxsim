@@ -52,7 +52,6 @@ def semi_implicit_euler_integration(
         W_Q̇_B = jaxsim.math.Quaternion.derivative(
             quaternion=data.base_orientation,
             omega=W_ω_WB,
-            omega_in_body_fixed=False,
         ).squeeze()
 
         W_p_B = data.base_position + dt * W_ṗ_B
