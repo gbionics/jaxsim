@@ -3,6 +3,7 @@ import xml.etree.ElementTree as ET
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 import rod
 
@@ -855,6 +856,119 @@ def test_export_model_with_missing_collision(
     assert exported_model.name == model.name(), "Exported model name should match"
 
     # Verify we can build a JaxSim model from the exported URDF
+    reimported_jaxsim_model = js.model.JaxSimModel.build_from_model_description(
+        model_description=exported_urdf, is_urdf=True
+    )
+
+
+def test_export_mesh_scaling_preserves_nonzero_visual_and_joint_origins(
+    tmp_path: pathlib.Path,
+):
+    """
+    Regression test for mesh export:
+    non-identity scaling must preserve non-zero visual/joint origins in the URDF.
+    """
+
+    mesh_file = pathlib.Path(__file__).parent / "assets" / "cube.stl"
+    if not mesh_file.exists():
+        pytest.skip(f"Test mesh file not found: {mesh_file}")
+
+    urdf_path = tmp_path / "mesh_origin_regression.urdf"
+    urdf_path.write_text(
+        f"""<?xml version="1.0"?>
+<robot name="mesh_origin_regression">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 0.1 0.1"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="mesh_link">
+    <inertial>
+      <origin xyz="0.01 -0.01 0.02" rpy="0 0 0"/>
+      <mass value="0.01"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.03 0.01 -0.02" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="{mesh_file.as_posix()}" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.03 0.01 -0.02" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="{mesh_file.as_posix()}" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="base_to_mesh" type="revolute">
+    <parent link="base_link"/>
+    <child link="mesh_link"/>
+    <origin xyz="0.4 -0.1 0.2" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.57" upper="1.57" effort="10" velocity="1"/>
+  </joint>
+</robot>
+""",
+        encoding="utf-8",
+    )
+
+    model = js.model.JaxSimModel.build_from_model_description(
+        model_description=urdf_path,
+        is_urdf=True,
+        parametrized_links=("mesh_link",),
+    )
+
+    mesh_link_idx = js.link.name_to_idx(model=model, link_name="mesh_link")
+    dims = jnp.ones((model.number_of_links(), 3))
+    dims = dims.at[mesh_link_idx].set(jnp.array([1.7, 0.8, 1.3]))
+    scaling = ScalingFactors(dims=dims, density=jnp.ones(model.number_of_links()))
+
+    updated_model = js.model.update_hw_parameters(model=model, scaling_factors=scaling)
+    exported_urdf = updated_model.export_updated_model()
+    root = ET.fromstring(exported_urdf)
+
+    visual_origin = root.find(".//link[@name='mesh_link']/visual/origin")
+    assert visual_origin is not None, "Mesh visual origin must exist in exported URDF"
+    visual_xyz = np.array([float(v) for v in visual_origin.get("xyz").split()])
+
+    expected_visual_xyz = np.array(
+        updated_model.kin_dyn_parameters.hw_link_metadata.L_H_vis[mesh_link_idx][:3, 3]
+    )
+    assert_allclose(
+        visual_xyz,
+        expected_visual_xyz,
+        atol=1e-8,
+        err_msg="Exported mesh visual origin does not match updated metadata",
+    )
+    assert not np.allclose(visual_xyz, np.zeros(3), atol=1e-12)
+
+    joint_origin = root.find(".//joint[@name='base_to_mesh']/origin")
+    assert joint_origin is not None, "Joint origin must exist in exported URDF"
+    joint_xyz = np.array([float(v) for v in joint_origin.get("xyz").split()])
+
+    joint_idx = js.joint.name_to_idx(model=updated_model, joint_name="base_to_mesh")
+    expected_joint_xyz = np.array(
+        updated_model.kin_dyn_parameters.joint_model.λ_H_pre[joint_idx + 1][:3, 3]
+    )
+    assert_allclose(
+        joint_xyz,
+        expected_joint_xyz,
+        atol=1e-8,
+        err_msg="Exported joint origin does not match updated joint transform",
+    )
+    assert not np.allclose(joint_xyz, np.zeros(3), atol=1e-12)
+
     reimported_jaxsim_model = js.model.JaxSimModel.build_from_model_description(
         model_description=exported_urdf, is_urdf=True
     )
