@@ -1,3 +1,4 @@
+import copy
 import pathlib
 import tempfile
 import warnings

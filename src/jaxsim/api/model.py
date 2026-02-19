@@ -454,6 +454,7 @@ class JaxSimModel(JaxsimDataclass):
             geometry = (
                 supported_visual.geometry.geometry() if supported_visual else None
             )
+
             if isinstance(geometry, rod.Box):
                 lx, ly, lz = geometry.size
                 density = mass / (lx * ly * lz)
@@ -682,10 +683,19 @@ class JaxSimModel(JaxsimDataclass):
             # Update visuals and collisions
             dims = hw_metadata.geometry[link_index]
 
-            elements_to_update = (
+            elements_to_update_raw = (
                 links_dict[link_name].visual,
                 links_dict[link_name].collision,
             )
+            elements_to_update = []
+
+            for entry in elements_to_update_raw:
+                if entry is None:
+                    continue
+                if isinstance(entry, (list, tuple)):
+                    elements_to_update.extend(e for e in entry if e is not None)
+                else:
+                    elements_to_update.append(entry)
 
             element_pose = rod.Pose.from_transform(
                 transform=np.array(hw_metadata.L_H_vis[link_index]),
@@ -693,7 +703,11 @@ class JaxSimModel(JaxsimDataclass):
             )
 
             for element in elements_to_update:
-                if element is None:
+                if (
+                    element is None
+                    or not hasattr(element, "geometry")
+                    or element.geometry is None
+                ):
                     continue
 
                 # Update geometry
@@ -704,6 +718,22 @@ class JaxSimModel(JaxsimDataclass):
                 elif shape == LinkParametrizableShape.Cylinder:
                     element.geometry.cylinder.radius = float(dims[0])
                     element.geometry.cylinder.length = float(dims[1])
+                elif shape == LinkParametrizableShape.Mesh:
+                    # Preserve the original mesh unit scale and apply
+                    # only the parametrization scaling factors on top.
+                    if (
+                        not hasattr(element.geometry, "mesh")
+                        or element.geometry.mesh is None
+                    ):
+                        continue
+                    base_scale = (
+                        np.array(element.geometry.mesh.scale, dtype=float)
+                        if element.geometry.mesh.scale is not None
+                        else np.ones(3, dtype=float)
+                    )
+                    element.geometry.mesh.scale = tuple(
+                        float(v) for v in (base_scale * np.array(dims)).tolist()
+                    )
                 else:
                     # This branch should be unreachable. Unsupported shapes should be
                     # filtered out above.
@@ -2591,10 +2621,6 @@ def update_hw_parameters(
 
     has_joints = model.number_of_joints() > 0
 
-    # Apply scaling using vectorized operations on non-Static fields
-    # This avoids Python loops while respecting Static mesh data
-
-    # Helper function to apply scaling to a single link's data
     def apply_scaling_single_link(
         link_shape,
         geometry,
@@ -2647,11 +2673,14 @@ def update_hw_parameters(
     # Handle joint transforms separately, only if model has joints
     def transform_all_joints(operands):
         """Transform all joint poses across all links."""
-        updated_L_H_G, scale_vectors, L_H_pre, L_H_pre_mask = operands
+        original_L_H_G, updated_L_H_G, scale_vectors, L_H_pre, L_H_pre_mask = operands
 
         # Vectorized transformation: (n_links, n_joints, 4, 4)
+        # Express joint transforms in the original CoM frames.
+        # Using the already-scaled L_H_G here introduces a second implicit
+        # scaling term and distorts kinematic chain proportions.
         G_H_L_all = jax.vmap(jaxsim.math.Transform.inverse)(
-            updated_L_H_G
+            original_L_H_G
         )  # (n_links, 4, 4)
 
         # Use batch matrix multiply with broadcasting
@@ -2678,8 +2707,9 @@ def update_hw_parameters(
     updated_L_H_pre = jax.lax.cond(
         has_joints,
         transform_all_joints,
-        lambda operands: operands[2],  # Return L_H_pre unchanged
+        lambda operands: operands[3],  # Return L_H_pre unchanged
         operand=(
+            hw_link_metadata.L_H_G,
             updated_L_H_G,
             scale_vectors,
             hw_link_metadata.L_H_pre,
@@ -2687,7 +2717,7 @@ def update_hw_parameters(
         ),
     )
 
-    # Create updated HwLinkMetadata (Static fields unchanged)
+    # Create updated HwLinkMetadata
     updated_hw_link_metadata = hw_link_metadata.replace(
         geometry=updated_geometry,
         density=updated_density,
