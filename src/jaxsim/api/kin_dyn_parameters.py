@@ -1254,7 +1254,6 @@ class HwLinkMetadata(JaxsimDataclass):
             )
 
         def mesh(parent_idx, L_p_C):
-            # Element-wise scaling like box
             sx, sy, sz = scaling_factors.dims[parent_idx]
             return jnp.hstack(
                 [
