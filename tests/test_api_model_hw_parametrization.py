@@ -3,11 +3,16 @@ import xml.etree.ElementTree as ET
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 import pytest
 import rod
 
 import jaxsim.api as js
-from jaxsim.api.kin_dyn_parameters import HwLinkMetadata, ScalingFactors
+from jaxsim.api.kin_dyn_parameters import (
+    HwLinkMetadata,
+    LinkParametrizableShape,
+    ScalingFactors,
+)
 from jaxsim.rbda.contacts import SoftContactsParams
 
 from .utils import assert_allclose
@@ -854,9 +859,246 @@ def test_export_model_with_missing_collision(
     reimported_jaxsim_model = js.model.JaxSimModel.build_from_model_description(
         model_description=exported_urdf, is_urdf=True
     )
+
+
+def test_export_mesh_scaling_preserves_nonzero_visual_and_joint_origins(
+    tmp_path: pathlib.Path,
+):
+    """
+    Regression test for mesh export:
+    non-identity scaling must preserve non-zero visual/joint origins in the URDF.
+    """
+
+    mesh_file = pathlib.Path(__file__).parent / "assets" / "cube.stl"
+    if not mesh_file.exists():
+        pytest.skip(f"Test mesh file not found: {mesh_file}")
+
+    urdf_path = tmp_path / "mesh_origin_regression.urdf"
+    urdf_path.write_text(
+        f"""<?xml version="1.0"?>
+<robot name="mesh_origin_regression">
+  <link name="base_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0" ixz="0" iyy="0.01" iyz="0" izz="0.01"/>
+    </inertial>
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <box size="0.1 0.1 0.1"/>
+      </geometry>
+    </visual>
+  </link>
+
+  <link name="mesh_link">
+    <inertial>
+      <origin xyz="0.01 -0.01 0.02" rpy="0 0 0"/>
+      <mass value="0.01"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+    <visual>
+      <origin xyz="0.03 0.01 -0.02" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="{mesh_file.as_posix()}" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </visual>
+    <collision>
+      <origin xyz="0.03 0.01 -0.02" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="{mesh_file.as_posix()}" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+  <joint name="base_to_mesh" type="revolute">
+    <parent link="base_link"/>
+    <child link="mesh_link"/>
+    <origin xyz="0.4 -0.1 0.2" rpy="0 0 0"/>
+    <axis xyz="0 0 1"/>
+    <limit lower="-1.57" upper="1.57" effort="10" velocity="1"/>
+  </joint>
+</robot>
+""",
+        encoding="utf-8",
+    )
+
+    model = js.model.JaxSimModel.build_from_model_description(
+        model_description=urdf_path,
+        is_urdf=True,
+        parametrized_links=("mesh_link",),
+    )
+
+    mesh_link_idx = js.link.name_to_idx(model=model, link_name="mesh_link")
+    dims = jnp.ones((model.number_of_links(), 3))
+    dims = dims.at[mesh_link_idx].set(jnp.array([1.7, 0.8, 1.3]))
+    scaling = ScalingFactors(dims=dims, density=jnp.ones(model.number_of_links()))
+
+    updated_model = js.model.update_hw_parameters(model=model, scaling_factors=scaling)
+    exported_urdf = updated_model.export_updated_model()
+    root = ET.fromstring(exported_urdf)
+
+    visual_origin = root.find(".//link[@name='mesh_link']/visual/origin")
+    assert visual_origin is not None, "Mesh visual origin must exist in exported URDF"
+    visual_xyz = np.array([float(v) for v in visual_origin.get("xyz").split()])
+
+    expected_visual_xyz = np.array(
+        updated_model.kin_dyn_parameters.hw_link_metadata.L_H_vis[mesh_link_idx][:3, 3]
+    )
+    assert_allclose(
+        visual_xyz,
+        expected_visual_xyz,
+        atol=1e-8,
+        err_msg="Exported mesh visual origin does not match updated metadata",
+    )
+    assert not np.allclose(visual_xyz, np.zeros(3), atol=1e-12)
+
+    joint_origin = root.find(".//joint[@name='base_to_mesh']/origin")
+    assert joint_origin is not None, "Joint origin must exist in exported URDF"
+    joint_xyz = np.array([float(v) for v in joint_origin.get("xyz").split()])
+
+    joint_idx = js.joint.name_to_idx(model=updated_model, joint_name="base_to_mesh")
+    expected_joint_xyz = np.array(
+        updated_model.kin_dyn_parameters.joint_model.λ_H_pre[joint_idx + 1][:3, 3]
+    )
+    assert_allclose(
+        joint_xyz,
+        expected_joint_xyz,
+        atol=1e-8,
+        err_msg="Exported joint origin does not match updated joint transform",
+    )
+    assert not np.allclose(joint_xyz, np.zeros(3), atol=1e-12)
+
+    reimported_jaxsim_model = js.model.JaxSimModel.build_from_model_description(
+        model_description=exported_urdf, is_urdf=True
+    )
     assert (
         reimported_jaxsim_model is not None
     ), "Should be able to build model from exported URDF"
     assert (
         reimported_jaxsim_model.number_of_links() == model.number_of_links()
     ), "Reimported model should have same number of links"
+
+
+# =============================================================================
+# Mesh Scaling Tests
+# =============================================================================
+
+
+def test_mesh_shape_enum():
+    """Test that the Mesh shape type is available in the enum."""
+    assert hasattr(LinkParametrizableShape, "Mesh")
+    assert LinkParametrizableShape.Mesh == 3
+
+
+def test_mixed_shapes_metadata():
+    """Test loading and metadata verification for mixed primitive and mesh shapes."""
+    test_urdf = pathlib.Path(__file__).parent / "assets" / "mixed_shapes_robot.urdf"
+
+    if not test_urdf.exists():
+        pytest.skip(f"Test URDF not found: {test_urdf}")
+
+    mesh_file = pathlib.Path(__file__).parent / "assets" / "cube.stl"
+    if not mesh_file.exists():
+        pytest.skip(f"Test mesh not found: {mesh_file}")
+
+    # Load model with all link types parametrized
+    model = js.model.JaxSimModel.build_from_model_description(
+        model_description=test_urdf,
+        is_urdf=True,
+        parametrized_links=("box_link", "cylinder_link", "mesh_link", "sphere_link"),
+    )
+
+    assert model.name() == "mixed_shapes_robot"
+    assert model.number_of_links() == 4
+
+    hw_meta = model.kin_dyn_parameters.hw_link_metadata
+
+    # Verify all 4 links are parametrized with correct shape types
+    assert len(hw_meta.link_shape) == 4
+    assert hw_meta.link_shape[0] == LinkParametrizableShape.Box
+    assert hw_meta.link_shape[1] == LinkParametrizableShape.Cylinder
+    assert hw_meta.link_shape[2] == LinkParametrizableShape.Mesh
+    assert hw_meta.link_shape[3] == LinkParametrizableShape.Sphere
+
+    # Verify mesh data exists only for mesh link
+    assert hw_meta.mesh_vertices is not None
+    assert hw_meta.mesh_vertices[0] is None  # box
+    assert hw_meta.mesh_vertices[1] is None  # cylinder
+    assert hw_meta.mesh_vertices[2] is not None  # mesh
+    assert hw_meta.mesh_vertices[3] is None  # sphere
+    assert hw_meta.mesh_faces is not None
+    assert hw_meta.mesh_faces[2] is not None  # mesh link has faces
+
+
+def test_mixed_shapes_scaling():
+    """Test uniform and non-uniform scaling with mixed primitive and mesh shapes."""
+    test_urdf = pathlib.Path(__file__).parent / "assets" / "mixed_shapes_robot.urdf"
+
+    if not test_urdf.exists():
+        pytest.skip(f"Test URDF not found: {test_urdf}")
+
+    mesh_file = pathlib.Path(__file__).parent / "assets" / "cube.stl"
+    if not mesh_file.exists():
+        pytest.skip(f"Test mesh not found: {mesh_file}")
+
+    model = js.model.JaxSimModel.build_from_model_description(
+        model_description=test_urdf,
+        is_urdf=True,
+        parametrized_links=("box_link", "cylinder_link", "mesh_link", "sphere_link"),
+    )
+
+    hw_meta = model.kin_dyn_parameters.hw_link_metadata
+    if len(hw_meta.link_shape) == 0:
+        pytest.skip("Hardware parametrization not supported")
+
+    # Get original masses
+    masses_orig = {}
+    for i in range(model.number_of_links()):
+        link_name = js.link.idx_to_name(model=model, link_index=i)
+        masses_orig[link_name] = float(model.kin_dyn_parameters.link_parameters.mass[i])
+
+    # Test uniform scaling (2x), so all links should scaled by 8x
+    uniform_scaling = ScalingFactors(
+        dims=jnp.ones((4, 3)) * 2.0,
+        density=jnp.ones(4),
+    )
+    scaled_uniform = js.model.update_hw_parameters(model, uniform_scaling)
+
+    for i in range(scaled_uniform.number_of_links()):
+        link_name = js.link.idx_to_name(model=scaled_uniform, link_index=i)
+        mass_scaled = float(scaled_uniform.kin_dyn_parameters.link_parameters.mass[i])
+        ratio = mass_scaled / masses_orig[link_name]
+        assert jnp.allclose(
+            ratio, 8.0, rtol=0.1
+        ), f"Uniform scaling: {link_name} expected 8x, got {ratio:.2f}x"
+
+    # Test different scaling factors per link
+    different_scaling = ScalingFactors(
+        dims=jnp.array(
+            [
+                [2.0, 2.0, 2.0],  # box: 8x
+                [3.0, 3.0, 3.0],  # cylinder: 27x
+                [1.5, 1.5, 1.5],  # mesh: 3.375x
+                [2.5, 2.5, 2.5],  # sphere: 15.625x
+            ]
+        ),
+        density=jnp.ones(4),
+    )
+    scaled_different = js.model.update_hw_parameters(model, different_scaling)
+
+    expected_ratios = {
+        "box_link": 8.0,
+        "cylinder_link": 27.0,
+        "mesh_link": 3.375,
+        "sphere_link": 15.625,
+    }
+
+    for i in range(scaled_different.number_of_links()):
+        link_name = js.link.idx_to_name(model=scaled_different, link_index=i)
+        mass_scaled = float(scaled_different.kin_dyn_parameters.link_parameters.mass[i])
+        ratio = mass_scaled / masses_orig[link_name]
+        expected = expected_ratios[link_name]
+        assert jnp.allclose(
+            ratio, expected, rtol=0.1
+        ), f"Different scaling: {link_name} expected {expected}x, got {ratio:.2f}x"

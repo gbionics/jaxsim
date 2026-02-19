@@ -30,6 +30,7 @@ from jaxsim.math import Adjoint, Cross
 from jaxsim.parsers.descriptions import ModelDescription
 from jaxsim.parsers.descriptions.joint import JointDescription
 from jaxsim.parsers.descriptions.link import LinkDescription
+from jaxsim.parsers.rod.utils import prepare_mesh_for_parametrization
 from jaxsim.utils import JaxsimDataclass, Mutability, wrappers
 
 from .common import VelRepr
@@ -385,6 +386,10 @@ class JaxSimModel(JaxsimDataclass):
         L_H_vises = []
         L_H_pre_masks = []
         L_H_pre = []
+        mesh_vertices = []
+        mesh_faces = []
+        mesh_offsets = []
+        mesh_uris = []
 
         # Process each link, only parametrizing those in parametrized_links if provided
         for link_description in ordered_links:
@@ -399,6 +404,10 @@ class JaxSimModel(JaxsimDataclass):
                 L_H_vises.append(jnp.eye(4))
                 L_H_pre_masks.append([0] * self.number_of_joints())
                 L_H_pre.append([jnp.eye(4)] * self.number_of_joints())
+                mesh_vertices.append(None)
+                mesh_faces.append(None)
+                mesh_offsets.append(None)
+                mesh_uris.append(None)
                 continue
 
             rod_link = rod_links_dict.get(link_name)
@@ -432,7 +441,8 @@ class JaxSimModel(JaxsimDataclass):
                         v
                         for v in rod_link.visuals()
                         if isinstance(
-                            v.geometry.geometry(), (rod.Box, rod.Sphere, rod.Cylinder)
+                            v.geometry.geometry(),
+                            (rod.Box, rod.Sphere, rod.Cylinder, rod.Mesh),
                         )
                     ),
                     None,
@@ -444,21 +454,75 @@ class JaxSimModel(JaxsimDataclass):
             geometry = (
                 supported_visual.geometry.geometry() if supported_visual else None
             )
+
             if isinstance(geometry, rod.Box):
                 lx, ly, lz = geometry.size
                 density = mass / (lx * ly * lz)
                 geom = [lx, ly, lz]
                 shape = LinkParametrizableShape.Box
+                mesh_vertices.append(None)
+                mesh_faces.append(None)
+                mesh_offsets.append(None)
+                mesh_uris.append(None)
             elif isinstance(geometry, rod.Sphere):
                 r = geometry.radius
                 density = mass / (4 / 3 * jnp.pi * r**3)
                 geom = [r, 0, 0]
                 shape = LinkParametrizableShape.Sphere
+                mesh_vertices.append(None)
+                mesh_faces.append(None)
+                mesh_offsets.append(None)
+                mesh_uris.append(None)
             elif isinstance(geometry, rod.Cylinder):
                 r, l = geometry.radius, geometry.length
                 density = mass / (jnp.pi * r**2 * l)
                 geom = [r, l, 0]
                 shape = LinkParametrizableShape.Cylinder
+                mesh_vertices.append(None)
+                mesh_faces.append(None)
+                mesh_offsets.append(None)
+                mesh_uris.append(None)
+            elif isinstance(geometry, rod.Mesh):
+                # Load and prepare mesh for parametric scaling
+                try:
+
+                    mesh_data = prepare_mesh_for_parametrization(
+                        mesh_uri=geometry.uri,
+                        scale=geometry.scale,
+                    )
+
+                    density = (
+                        mass / mesh_data["volume"] if mesh_data["volume"] > 0 else 0.0
+                    )
+
+                    # For meshes, store cumulative scale factors (initially 1.0) in geometry
+                    # instead of bounding box extents. This allows proper multiplicative scaling.
+                    geom = [1.0, 1.0, 1.0]
+                    shape = LinkParametrizableShape.Mesh
+
+                    # Store mesh data
+                    mesh_vertices.append(mesh_data["vertices"])
+                    mesh_faces.append(mesh_data["faces"])
+                    mesh_offsets.append(mesh_data["offset"])
+                    mesh_uris.append(mesh_data["uri"])
+
+                    logging.info(
+                        f"Loaded mesh for link '{link_name}': "
+                        f"{len(mesh_data['vertices'])} vertices, "
+                        f"{len(mesh_data['faces'])} faces, "
+                    )
+                except Exception as e:
+                    logging.warning(
+                        f"Failed to load mesh for link '{link_name}': {e}. "
+                        f"Marking as unsupported."
+                    )
+                    density = 0.0
+                    geom = [0, 0, 0]
+                    shape = LinkParametrizableShape.Unsupported
+                    mesh_vertices.append(None)
+                    mesh_faces.append(None)
+                    mesh_offsets.append(None)
+                    mesh_uris.append(None)
             else:
                 logging.debug(
                     f"Skipping link '{link_name}' for hardware parametrization due to unsupported geometry."
@@ -466,6 +530,10 @@ class JaxSimModel(JaxsimDataclass):
                 density = 0.0
                 geom = [0, 0, 0]
                 shape = LinkParametrizableShape.Unsupported
+                mesh_vertices.append(None)
+                mesh_faces.append(None)
+                mesh_offsets.append(None)
+                mesh_uris.append(None)
 
             inertial_pose = (
                 rod_link.inertial.pose.transform() if rod_link else jnp.eye(4)
@@ -501,6 +569,13 @@ class JaxSimModel(JaxsimDataclass):
             return HwLinkMetadata.empty()
 
         # Stack collected data into JAX arrays
+        # Handle L_H_pre specially: ensure shape (n_links, n_joints, 4, 4) even when n_joints=0
+        L_H_pre_array = jnp.array(L_H_pre, dtype=float)
+        if self.number_of_joints() == 0:
+            # Reshape from (n_links, 0) to (n_links, 0, 4, 4)
+            n_links = len(L_H_pre)
+            L_H_pre_array = L_H_pre_array.reshape(n_links, 0, 4, 4)
+
         return HwLinkMetadata(
             link_shape=jnp.array(shapes, dtype=int),
             geometry=jnp.array(geoms, dtype=float),
@@ -508,7 +583,34 @@ class JaxSimModel(JaxsimDataclass):
             L_H_G=jnp.array(L_H_Gs, dtype=float),
             L_H_vis=jnp.array(L_H_vises, dtype=float),
             L_H_pre_mask=jnp.array(L_H_pre_masks, dtype=bool),
-            L_H_pre=jnp.array(L_H_pre, dtype=float),
+            L_H_pre=L_H_pre_array,
+            mesh_vertices=(
+                tuple(
+                    wrappers.HashedNumpyArray(array=v) if v is not None else None
+                    for v in mesh_vertices
+                )
+                if any(v is not None for v in mesh_vertices)
+                else None
+            ),
+            mesh_faces=(
+                tuple(
+                    wrappers.HashedNumpyArray(array=f) if f is not None else None
+                    for f in mesh_faces
+                )
+                if any(f is not None for f in mesh_faces)
+                else None
+            ),
+            mesh_offset=(
+                tuple(
+                    wrappers.HashedNumpyArray(array=o) if o is not None else None
+                    for o in mesh_offsets
+                )
+                if any(o is not None for o in mesh_offsets)
+                else None
+            ),
+            mesh_uri=(
+                tuple(mesh_uris) if any(u is not None for u in mesh_uris) else None
+            ),
         )
 
     def export_updated_model(self) -> str:
@@ -581,10 +683,19 @@ class JaxSimModel(JaxsimDataclass):
             # Update visuals and collisions
             dims = hw_metadata.geometry[link_index]
 
-            elements_to_update = (
+            elements_to_update_raw = (
                 links_dict[link_name].visual,
                 links_dict[link_name].collision,
             )
+            elements_to_update = []
+
+            for entry in elements_to_update_raw:
+                if entry is None:
+                    continue
+                if isinstance(entry, (list, tuple)):
+                    elements_to_update.extend(e for e in entry if e is not None)
+                else:
+                    elements_to_update.append(entry)
 
             element_pose = rod.Pose.from_transform(
                 transform=np.array(hw_metadata.L_H_vis[link_index]),
@@ -592,7 +703,11 @@ class JaxSimModel(JaxsimDataclass):
             )
 
             for element in elements_to_update:
-                if element is None:
+                if (
+                    element is None
+                    or not hasattr(element, "geometry")
+                    or element.geometry is None
+                ):
                     continue
 
                 # Update geometry
@@ -603,6 +718,22 @@ class JaxSimModel(JaxsimDataclass):
                 elif shape == LinkParametrizableShape.Cylinder:
                     element.geometry.cylinder.radius = float(dims[0])
                     element.geometry.cylinder.length = float(dims[1])
+                elif shape == LinkParametrizableShape.Mesh:
+                    # Preserve the original mesh unit scale and apply
+                    # only the parametrization scaling factors on top.
+                    if (
+                        not hasattr(element.geometry, "mesh")
+                        or element.geometry.mesh is None
+                    ):
+                        continue
+                    base_scale = (
+                        np.array(element.geometry.mesh.scale, dtype=float)
+                        if element.geometry.mesh.scale is not None
+                        else np.ones(3, dtype=float)
+                    )
+                    element.geometry.mesh.scale = tuple(
+                        float(v) for v in (base_scale * np.array(dims)).tolist()
+                    )
                 else:
                     # This branch should be unreachable. Unsupported shapes should be
                     # filtered out above.
@@ -2490,21 +2621,110 @@ def update_hw_parameters(
 
     has_joints = model.number_of_joints() > 0
 
-    supported_case = lambda hw_metadata, scaling_factors: HwLinkMetadata.apply_scaling(
-        hw_metadata=hw_metadata, scaling_factors=scaling_factors, has_joints=has_joints
-    )
-    unsupported_case = lambda hw_metadata, scaling_factors: hw_metadata
+    def apply_scaling_single_link(
+        link_shape,
+        geometry,
+        density,
+        L_H_G,
+        L_H_vis,
+        L_H_pre,
+        L_H_pre_mask,
+        scaling_dims,
+        scaling_density,
+    ):
+        """Apply scaling to a single link's numerical data."""
+        # Compute scale vector
+        shape_indices_map = jnp.array([[0, 1, 2], [0, 0, 1], [0, 0, 0], [0, 1, 2]])
+        per_link_indices = shape_indices_map[link_shape]
+        scale_vector = scaling_dims[per_link_indices]
 
-    # Apply scaling to hw_link_metadata using vmap
-    updated_hw_link_metadata = jax.vmap(
-        lambda hw_metadata, multipliers: jax.lax.cond(
-            hw_metadata.link_shape == LinkParametrizableShape.Unsupported,
-            unsupported_case,
-            supported_case,
-            hw_metadata,
-            multipliers,
+        # Update kinematics
+        G_H_L = jaxsim.math.Transform.inverse(L_H_G)
+        G_H_vis = G_H_L @ L_H_vis
+        G_H̅_vis = G_H_vis.at[:3, 3].set(scale_vector * G_H_vis[:3, 3])
+        L_H̅_G = L_H_G.at[:3, 3].set(scale_vector * L_H_G[:3, 3])
+        L_H̅_vis = L_H̅_G @ G_H̅_vis
+
+        # Update shape parameters
+        updated_geom = geometry * scaling_dims
+        updated_dens = density * scaling_density
+
+        return updated_geom, updated_dens, L_H̅_G, L_H̅_vis, scale_vector
+
+    # Vmap over all links for basic scaling
+    (
+        updated_geometry,
+        updated_density,
+        updated_L_H_G,
+        updated_L_H_vis,
+        scale_vectors,
+    ) = jax.vmap(apply_scaling_single_link)(
+        hw_link_metadata.link_shape,
+        hw_link_metadata.geometry,
+        hw_link_metadata.density,
+        hw_link_metadata.L_H_G,
+        hw_link_metadata.L_H_vis,
+        hw_link_metadata.L_H_pre,
+        hw_link_metadata.L_H_pre_mask,
+        scaling_factors.dims,
+        scaling_factors.density,
+    )
+
+    # Handle joint transforms separately, only if model has joints
+    def transform_all_joints(operands):
+        """Transform all joint poses across all links."""
+        original_L_H_G, updated_L_H_G, scale_vectors, L_H_pre, L_H_pre_mask = operands
+
+        # Vectorized transformation: (n_links, n_joints, 4, 4)
+        # Express joint transforms in the original CoM frames.
+        # Using the already-scaled L_H_G here introduces a second implicit
+        # scaling term and distorts kinematic chain proportions.
+        G_H_L_all = jax.vmap(jaxsim.math.Transform.inverse)(
+            original_L_H_G
+        )  # (n_links, 4, 4)
+
+        # Use batch matrix multiply with broadcasting
+        # G_H_L_all: (n_links, 4, 4) -> (n_links, 1, 4, 4)
+        # L_H_pre: (n_links, n_joints, 4, 4)
+        # Result: (n_links, n_joints, 4, 4)
+        G_H_pre = G_H_L_all[:, None, :, :] @ L_H_pre
+
+        # Scale translation components
+        G_H̅_pre = G_H_pre.at[:, :, :3, 3].set(
+            jnp.where(
+                L_H_pre_mask[:, :, None],
+                scale_vectors[:, None, :] * G_H_pre[:, :, :3, 3],
+                G_H_pre[:, :, :3, 3],
+            )
         )
-    )(hw_link_metadata, scaling_factors)
+
+        # Transform back to link frames
+        # updated_L_H_G: (n_links, 4, 4) -> (n_links, 1, 4, 4)
+        # G_H̅_pre: (n_links, n_joints, 4, 4)
+        # Result: (n_links, n_joints, 4, 4)
+        return updated_L_H_G[:, None, :, :] @ G_H̅_pre
+
+    updated_L_H_pre = jax.lax.cond(
+        has_joints,
+        transform_all_joints,
+        lambda operands: operands[3],  # Return L_H_pre unchanged
+        operand=(
+            hw_link_metadata.L_H_G,
+            updated_L_H_G,
+            scale_vectors,
+            hw_link_metadata.L_H_pre,
+            hw_link_metadata.L_H_pre_mask,
+        ),
+    )
+
+    # Create updated HwLinkMetadata
+    updated_hw_link_metadata = hw_link_metadata.replace(
+        geometry=updated_geometry,
+        density=updated_density,
+        L_H_G=updated_L_H_G,
+        L_H_vis=updated_L_H_vis,
+        L_H_pre=updated_L_H_pre,
+    )
 
     # Compute mass and inertia once and unpack the results
     m_updated, I_com_updated = HwLinkMetadata.compute_mass_and_inertia(

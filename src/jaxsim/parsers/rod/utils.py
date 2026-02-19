@@ -278,3 +278,62 @@ def create_mesh_collision(
     ]
 
     return descriptions.MeshCollision(collidable_points=collidable_points, center=W_p_L)
+
+
+def prepare_mesh_for_parametrization(
+    mesh_uri: str, scale: tuple[float, float, float] = (1.0, 1.0, 1.0)
+) -> dict:
+    """
+    Load and prepare a mesh for parametric scaling with exact inertia computation.
+
+    This function loads a mesh, ensures it's watertight (crucial for volume/inertia
+    calculation), centers it, and returns the data needed for parametric scaling.
+
+    Args:
+        mesh_uri: URI/path to the mesh file.
+        scale: Initial scale factors to apply (from SDF/URDF).
+
+    Returns:
+        A dictionary containing:
+            - 'vertices': Centered mesh vertices as numpy array (Nx3)
+            - 'faces': Triangle faces as numpy array (Mx3 integer indices)
+            - 'offset': Original mesh centroid offset as numpy array (3,)
+            - 'uri': The mesh URI for reference
+            - 'is_watertight': Boolean indicating if mesh is watertight
+            - 'volume': The volume of the mesh (after scaling)
+    """
+
+    # Load mesh
+    file = pathlib.Path(resolve_local_uri(uri=mesh_uri))
+    file_type = file.suffix.replace(".", "")
+    mesh = trimesh.load_mesh(file, file_type=file_type)
+
+    if mesh.is_empty:
+        raise RuntimeError(f"Failed to process '{file}' with trimesh")
+
+    # Apply initial scale from SDF/URDF
+    mesh.apply_scale(scale)
+
+    # Check and fix watertightness
+    is_watertight = mesh.is_watertight
+    if not is_watertight:
+        logging.warning(
+            f"Mesh {mesh_uri} is not watertight. Computing convex hull for valid inertia."
+        )
+        mesh = mesh.convex_hull
+        is_watertight = True
+
+    # Store original centroid as offset
+    offset = mesh.centroid.copy()
+
+    # Center the mesh
+    mesh.vertices -= offset
+
+    return {
+        "vertices": np.array(mesh.vertices, dtype=np.float64),
+        "faces": np.array(mesh.faces, dtype=np.int32),
+        "offset": np.array(offset, dtype=np.float64),
+        "uri": mesh_uri,
+        "is_watertight": is_watertight,
+        "volume": mesh.volume,
+    }

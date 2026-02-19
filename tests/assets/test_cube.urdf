@@ -1,0 +1,37 @@
+<?xml version="1.0"?>
+<robot name="test_cube">
+
+  <!-- Single cube link with mesh visual -->
+  <link name="cube_link">
+    <inertial>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <!-- For a 20mm (0.02m) cube with density 1000 kg/m3:
+           Volume = 0.02 **3 = 8e-6 m3
+           Mass = 1000 * 8e-6 = 0.008 kg = 8 grams -->
+      <mass value="0.008"/>
+      <!-- For a cube: Ixx = Iyy = Izz = (1/6)*m*L2
+           I = (1/6) * 0.008 * 0.02 ** 2 = 5.333e-7 kgm2 -->
+      <inertia ixx="5.333e-7" ixy="0.0" ixz="0.0"
+               iyy="5.333e-7" iyz="0.0"
+               izz="5.333e-7"/>
+    </inertial>
+
+    <visual>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="tests/assets/cube.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="0.2 0.2 0.8 1.0"/>
+      </material>
+    </visual>
+
+    <collision>
+      <origin xyz="0 0 0" rpy="0 0 0"/>
+      <geometry>
+        <mesh filename="tests/assets/cube.stl" scale="0.001 0.001 0.001"/>
+      </geometry>
+    </collision>
+  </link>
+
+</robot>
