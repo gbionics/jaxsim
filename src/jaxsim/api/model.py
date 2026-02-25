@@ -1207,7 +1207,7 @@ def generalized_free_floating_jacobian_derivative(
 
             B_X_LW = jaxsim.math.Adjoint.inverse(adjoint=LW_X_B)
 
-            B_v_WB = data.base_velocity(output_representation=VelRepr.Body)
+            B_v_WB = data.base_velocity(VelRepr.Body)
 
             BW_H_B = W_H_B.at[0:3, 3].set(jnp.zeros(3))
             B_X_BW = Adjoint.from_transform(transform=BW_H_B, inverse=True)
@@ -1216,7 +1216,7 @@ def generalized_free_floating_jacobian_derivative(
                 LW_X_B,
                 B_J_WL_B
                 @ jax.scipy.linalg.block_diag(B_X_BW, jnp.eye(model.dofs()))
-                @ data.generalized_velocity(output_representation=VelRepr.Mixed),
+                @ data.generalized_velocity(VelRepr.Mixed),
             )
 
             LW_v_W_LW = LW_v_WL.at[:, 3:6].set(jnp.zeros_like(LW_v_WL[:, 3:6]))
@@ -1962,7 +1962,7 @@ def inverse_dynamics(
     return f_B.astype(float), τ.astype(float)
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def free_floating_gravity_forces(
     model: JaxSimModel,
@@ -2011,7 +2011,7 @@ def free_floating_gravity_forces(
     ).astype(float)
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def free_floating_bias_forces(
     model: JaxSimModel,
@@ -2110,7 +2110,7 @@ def locked_spatial_inertia(
     )[:, 0:6]
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def total_momentum(
     model: JaxSimModel,
@@ -2791,7 +2791,7 @@ def step(
     # Get the external forces in inertial-fixed representation.
     W_f_L_external = js.data.JaxSimModelData.other_representation_to_inertial(
         O_f_L_external,
-        other_representation=output_representation,
+        other_representation=data.velocity_representation,
         transform=data._link_transforms,
         is_force=True,
     )
