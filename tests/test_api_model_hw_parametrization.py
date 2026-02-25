@@ -856,7 +856,7 @@ def test_export_model_with_missing_collision(
     assert exported_model.name == model.name(), "Exported model name should match"
 
     # Verify we can build a JaxSim model from the exported URDF
-    reimported_jaxsim_model = js.model.JaxSimModel.build_from_model_description(
+    _ = js.model.JaxSimModel.build_from_model_description(
         model_description=exported_urdf, is_urdf=True
     )
 
