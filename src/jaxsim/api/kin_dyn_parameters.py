@@ -927,8 +927,9 @@ class HwLinkMetadata(JaxsimDataclass):
     Attributes:
         link_shape: The shape of the link.
             0 = box, 1 = cylinder, 2 = sphere, 3 = mesh, -1 = unsupported.
-        geometry: The dimensions of the link.
-            box: [lx,ly,lz], cylinder: [r,l,0], sphere: [r,0,0], mesh: [lx,ly,lz] (bounding box).
+        geometry: Shape parameters used by HW parametrization.
+            box: [lx,ly,lz], cylinder: [r,l,0], sphere: [r,0,0],
+            mesh: cumulative anisotropic scale factors [sx,sy,sz] (initialized to [1,1,1]).
         density: The density of the link.
         L_H_G: The homogeneous transformation matrix from the link frame to the CoM frame G.
         L_H_vis: The homogeneous transformation matrix from the link frame to the visual frame.
@@ -997,13 +998,24 @@ class HwLinkMetadata(JaxsimDataclass):
         # vol = 1/6 * (A . (B x C))
         tetrahedron_volumes = jnp.sum(A * jnp.cross(B, C), axis=1) / 6.0
 
+        total_signed_volume = jnp.sum(tetrahedron_volumes)
+
+        # Normalize the global winding sign so positive density yields non-negative mass.
+        orientation_sign = jnp.where(total_signed_volume < 0, -1.0, 1.0)
+        tetrahedron_volumes = tetrahedron_volumes * orientation_sign
         total_volume = jnp.sum(tetrahedron_volumes)
-        mass = total_volume * density
+
+        eps = jnp.asarray(1e-12, dtype=total_volume.dtype)
+        is_valid_volume = jnp.abs(total_volume) > eps
+        safe_total_volume = jnp.where(is_valid_volume, total_volume, 1.0)
+        mass = jnp.where(is_valid_volume, total_volume * density, 0.0)
 
         # Compute center of mass
         tet_coms = (A + B + C) / 4.0
-        com_position = (
-            jnp.sum(tet_coms * tetrahedron_volumes[:, None], axis=0) / total_volume
+        com_position = jnp.where(
+            is_valid_volume,
+            jnp.sum(tet_coms * tetrahedron_volumes[:, None], axis=0) / safe_total_volume,
+            jnp.zeros(3, dtype=vertices.dtype),
         )
 
         # Compute inertia tensor with covariance approach
@@ -1022,7 +1034,8 @@ class HwLinkMetadata(JaxsimDataclass):
         Σ_com = Σ_origin * density - mass * jnp.outer(com_position, com_position)
 
         # Convert covariance to inertia tensor
-        I_com = jnp.trace(Σ_com) * jnp.eye(3) - Σ_com
+        I_com = jnp.trace(Σ_com) * jnp.eye(3, dtype=vertices.dtype) - Σ_com
+        I_com = jnp.where(is_valid_volume, I_com, jnp.zeros((3, 3), dtype=vertices.dtype))
 
         return mass, com_position, I_com
 
@@ -1086,7 +1099,16 @@ class HwLinkMetadata(JaxsimDataclass):
             return mass, inertia
 
         def compute_mass_inertia_primitive(shape_idx, dims, density):
-            return jax.lax.switch(shape_idx, (box, cylinder, sphere), dims, density)
+            def unsupported_case(_):
+                return (
+                    jnp.asarray(0.0, dtype=density.dtype),
+                    jnp.zeros((3, 3), dtype=density.dtype),
+                )
+
+            def supported_case(idx):
+                return jax.lax.switch(idx, (box, cylinder, sphere), dims, density)
+
+            return jax.lax.cond(shape_idx < 0, unsupported_case, supported_case, shape_idx)
 
         # For models with mesh data, we need to handle Static heterogeneous mesh arrays
         has_mesh_data = (
