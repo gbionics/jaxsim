@@ -2633,23 +2633,41 @@ def update_hw_parameters(
         scaling_density,
     ):
         """Apply scaling to a single link's numerical data."""
-        # Compute scale vector
-        shape_indices_map = jnp.array([[0, 1, 2], [0, 0, 1], [0, 0, 0], [0, 1, 2]])
-        per_link_indices = shape_indices_map[link_shape]
-        scale_vector = scaling_dims[per_link_indices]
+        def scale_supported(_):
+            shape_indices_map = jnp.array(
+                [[0, 1, 2], [0, 0, 1], [0, 0, 0], [0, 1, 2]]
+            )
+            per_link_indices = shape_indices_map[link_shape]
+            scale_vector = scaling_dims[per_link_indices]
 
-        # Update kinematics
-        G_H_L = jaxsim.math.Transform.inverse(L_H_G)
-        G_H_vis = G_H_L @ L_H_vis
-        G_H̅_vis = G_H_vis.at[:3, 3].set(scale_vector * G_H_vis[:3, 3])
-        L_H̅_G = L_H_G.at[:3, 3].set(scale_vector * L_H_G[:3, 3])
-        L_H̅_vis = L_H̅_G @ G_H̅_vis
+            # Update kinematics
+            G_H_L = jaxsim.math.Transform.inverse(L_H_G)
+            G_H_vis = G_H_L @ L_H_vis
+            G_H̅_vis = G_H_vis.at[:3, 3].set(scale_vector * G_H_vis[:3, 3])
+            L_H̅_G = L_H_G.at[:3, 3].set(scale_vector * L_H_G[:3, 3])
+            L_H̅_vis = L_H̅_G @ G_H̅_vis
 
-        # Update shape parameters
-        updated_geom = geometry * scaling_dims
-        updated_dens = density * scaling_density
+            # Update shape parameters
+            updated_geom = geometry * scaling_dims
+            updated_dens = density * scaling_density
 
-        return updated_geom, updated_dens, L_H̅_G, L_H̅_vis, scale_vector
+            return updated_geom, updated_dens, L_H̅_G, L_H̅_vis, scale_vector
+
+        def scale_unsupported(_):
+            return (
+                geometry,
+                density,
+                L_H_G,
+                L_H_vis,
+                jnp.ones_like(scaling_dims),
+            )
+
+        return jax.lax.cond(
+            link_shape == LinkParametrizableShape.Unsupported,
+            scale_unsupported,
+            scale_supported,
+            operand=None,
+        )
 
     # Vmap over all links for basic scaling
     (
