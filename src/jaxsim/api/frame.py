@@ -36,13 +36,13 @@ def idx_of_parent_link(
     n_f = len(model.frame_names())
 
     exceptions.raise_value_error_if(
-        condition=jnp.array([frame_index < n_l, frame_index >= n_l + n_f]).any(),
+        condition=jnp.logical_or(frame_index < n_l, frame_index >= n_l + n_f),
         msg="Invalid frame index '{idx}'",
         idx=frame_index,
     )
 
     return jnp.array(model.kin_dyn_parameters.frame_parameters.body)[
-        frame_index - model.number_of_links()
+        frame_index - n_l
     ]
 
 
@@ -89,13 +89,13 @@ def idx_to_name(model: js.model.JaxSimModel, *, frame_index: jtp.IntLike) -> str
     n_f = len(model.frame_names())
 
     exceptions.raise_value_error_if(
-        condition=jnp.array([frame_index < n_l, frame_index >= n_l + n_f]).any(),
+        condition=jnp.logical_or(frame_index < n_l, frame_index >= n_l + n_f),
         msg="Invalid frame index '{idx}'",
         idx=frame_index,
     )
 
     return model.kin_dyn_parameters.frame_parameters.name[
-        frame_index - model.number_of_links()
+        frame_index - n_l
     ]
 
 
@@ -166,7 +166,7 @@ def transform(
     n_f = len(model.frame_names())
 
     exceptions.raise_value_error_if(
-        condition=jnp.array([frame_index < n_l, frame_index >= n_l + n_f]).any(),
+        condition=jnp.logical_or(frame_index < n_l, frame_index >= n_l + n_f),
         msg="Invalid frame index '{idx}'",
         idx=frame_index,
     )
@@ -177,7 +177,7 @@ def transform(
 
     # Get the static frame pose wrt the parent link.
     L_H_F = model.kin_dyn_parameters.frame_parameters.transform[
-        frame_index - model.number_of_links()
+        frame_index - n_l
     ]
 
     # Combine the transforms computing the frame pose.
@@ -210,7 +210,7 @@ def velocity(
     n_f = model.number_of_frames()
 
     exceptions.raise_value_error_if(
-        condition=jnp.array([frame_index < n_l, frame_index >= n_l + n_f]).any(),
+        condition=jnp.logical_or(frame_index < n_l, frame_index >= n_l + n_f),
         msg="Invalid frame index '{idx}'",
         idx=frame_index,
     )
@@ -269,7 +269,7 @@ def jacobian(
     n_f = model.number_of_frames()
 
     exceptions.raise_value_error_if(
-        condition=jnp.array([frame_index < n_l, frame_index >= n_l + n_f]).any(),
+        condition=jnp.logical_or(frame_index < n_l, frame_index >= n_l + n_f),
         msg="Invalid frame index '{idx}'",
         idx=frame_index,
     )
@@ -362,7 +362,7 @@ def jacobian_derivative(
     n_f = len(model.frame_names())
 
     exceptions.raise_value_error_if(
-        condition=jnp.array([frame_index < n_l, frame_index >= n_l + n_f]).any(),
+        condition=jnp.logical_or(frame_index < n_l, frame_index >= n_l + n_f),
         msg="Invalid frame index '{idx}'",
         idx=frame_index,
     )
@@ -403,13 +403,16 @@ def jacobian_derivative(
     # =====================================================
 
     def compute_T(model: js.model.JaxSimModel, X: jtp.Matrix) -> jtp.Matrix:
-        In = jnp.eye(model.dofs())
-        T = jax.scipy.linalg.block_diag(X, In)
+        n = model.dofs()
+        T = jnp.zeros((6 + n, 6 + n), dtype=X.dtype)
+        T = T.at[:6, :6].set(X)
+        T = T.at[6:, 6:].set(jnp.eye(n, dtype=X.dtype))
         return T
 
     def compute_Ṫ(model: js.model.JaxSimModel, Ẋ: jtp.Matrix) -> jtp.Matrix:
-        On = jnp.zeros(shape=(model.dofs(), model.dofs()))
-        Ṫ = jax.scipy.linalg.block_diag(Ẋ, On)
+        n = model.dofs()
+        Ṫ = jnp.zeros((6 + n, 6 + n), dtype=Ẋ.dtype)
+        Ṫ = Ṫ.at[:6, :6].set(Ẋ)
         return Ṫ
 
     # Compute the operator to change the representation of ν, and its

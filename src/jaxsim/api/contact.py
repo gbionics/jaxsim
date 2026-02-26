@@ -135,10 +135,9 @@ def in_contact(
     )
 
     links_in_contact = jax.vmap(
-        lambda link_index: jnp.where(
+        lambda link_index: jnp.logical_and(
             parent_link_idx_of_enabled_collidable_points == link_index,
             below_terrain,
-            jnp.zeros_like(below_terrain, dtype=bool),
         ).any()
     )(link_idxs)
 
@@ -249,7 +248,9 @@ def transforms(model: js.model.JaxSimModel, data: js.data.JaxSimModelData) -> jt
 
     # Build the link-to-point transform from the displacement between the link frame L
     # and the implicit contact frame C.
-    L_H_C = jax.vmap(jnp.eye(4).at[0:3, 3].set)(L_p_Ci)
+    n_points = L_p_Ci.shape[0]
+    L_H_C = jnp.broadcast_to(jnp.eye(4, dtype=L_p_Ci.dtype), (n_points, 4, 4))
+    L_H_C = L_H_C.at[:, 0:3, 3].set(L_p_Ci)
 
     # Compose the work-to-link and link-to-point transforms.
     return jax.vmap(lambda W_H_Li, L_H_Ci: W_H_Li @ L_H_Ci)(W_H_L, L_H_C)
@@ -422,13 +423,16 @@ def jacobian_derivative(
     # =====================================================
 
     def compute_T(model: js.model.JaxSimModel, X: jtp.Matrix) -> jtp.Matrix:
-        In = jnp.eye(model.dofs())
-        T = jax.scipy.linalg.block_diag(X, In)
+        n = model.dofs()
+        T = jnp.zeros((6 + n, 6 + n), dtype=X.dtype)
+        T = T.at[:6, :6].set(X)
+        T = T.at[6:, 6:].set(jnp.eye(n, dtype=X.dtype))
         return T
 
     def compute_Ṫ(model: js.model.JaxSimModel, Ẋ: jtp.Matrix) -> jtp.Matrix:
-        On = jnp.zeros(shape=(model.dofs(), model.dofs()))
-        Ṫ = jax.scipy.linalg.block_diag(Ẋ, On)
+        n = model.dofs()
+        Ṫ = jnp.zeros((6 + n, 6 + n), dtype=Ẋ.dtype)
+        Ṫ = Ṫ.at[:6, :6].set(Ẋ)
         return Ṫ
 
     # Compute the operator to change the representation of ν, and its
@@ -447,10 +451,10 @@ def jacobian_derivative(
             W_X_B = Adjoint.from_transform(transform=W_H_B)
             B_v_WB = data.base_velocity(input_representation)
             B_vx_WB = Cross.vx(B_v_WB)
-            W_Ẋ_B = W_X_B @ B_vx_WB
+            W_Ẋ_B = W_X_B @ B_vx_WB
 
             T = compute_T(model=model, X=W_X_B)
-            Ṫ = compute_Ṫ(model=model, Ẋ=W_Ẋ_B)
+            Ṫ = compute_Ṫ(model=model, Ẋ=W_Ẋ_B)
 
         case VelRepr.Mixed:
             W_H_B = data._base_transform
@@ -611,15 +615,9 @@ def link_forces_from_contact_forces(
         contact_parameters.body, dtype=int
     )[indices_of_enabled_collidable_points]
 
-    # Create the mask that associate each collidable point to their parent link.
-    # We use this mask to sum the collidable points to the right link.
-    mask = parent_link_index_of_collidable_points[:, jnp.newaxis] == jnp.arange(
-        model.number_of_links()
-    )
-
-    # Sum the forces of all collidable points rigidly attached to a body.
-    # Since the contact forces W_f_C are expressed in the world frame,
-    # we don't need any coordinate transformation.
-    W_f_L = mask.T @ W_f_C
+    # Sum collidable point forces by parent link with a scatter-add to avoid
+    # allocating a dense (n_points x n_links) boolean mask.
+    W_f_L = jnp.zeros((model.number_of_links(), W_f_C.shape[1]), dtype=W_f_C.dtype)
+    W_f_L = W_f_L.at[parent_link_index_of_collidable_points].add(W_f_C)
 
     return W_f_L
