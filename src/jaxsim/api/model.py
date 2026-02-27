@@ -650,6 +650,85 @@ class JaxSimModel(JaxsimDataclass):
 
         # Iterate over the hardware metadata to update the ROD model
         hw_metadata = self.kin_dyn_parameters.hw_link_metadata
+        reduced_link_names = set(self.link_names())
+        reduced_joint_names = set(self.joint_names())
+        unit_scale = np.ones(3, dtype=float)
+        link_scale_factors: dict[str, np.ndarray] = {}
+
+        def collect_link_elements(link) -> list:
+            elements_to_update_raw = (link.visual, link.collision)
+            elements_to_update = []
+            for entry in elements_to_update_raw:
+                if entry is None:
+                    continue
+                if isinstance(entry, (list, tuple)):
+                    elements_to_update.extend(e for e in entry if e is not None)
+                else:
+                    elements_to_update.append(entry)
+            return elements_to_update
+
+        def scale_pose_translation(element, scale_vector):
+            if getattr(element, "pose", None) is None:
+                return
+            transform = np.array(element.pose.transform(), dtype=float)
+            transform[0:3, 3] = scale_vector * transform[0:3, 3]
+            element.pose = rod.Pose.from_transform(
+                transform=transform,
+                relative_to=element.pose.relative_to,
+            )
+
+        def scale_link_elements(
+            elements_to_update: list,
+            scale_vector: np.ndarray,
+            *,
+            mesh_pose: rod.Pose | None = None,
+            mesh_shape_link: bool = False,
+        ) -> None:
+            for element in elements_to_update:
+                if (
+                    element is None
+                    or not hasattr(element, "geometry")
+                    or element.geometry is None
+                ):
+                    continue
+
+                geometry = element.geometry
+                if getattr(geometry, "box", None) is not None:
+                    current_size = np.array(geometry.box.size, dtype=float)
+                    geometry.box.size = tuple(
+                        float(v) for v in (current_size * scale_vector).tolist()
+                    )
+                    scale_pose_translation(element, scale_vector)
+                elif getattr(geometry, "sphere", None) is not None:
+                    geometry.sphere.radius = float(
+                        float(geometry.sphere.radius) * float(scale_vector[0])
+                    )
+                    scale_pose_translation(element, scale_vector)
+                elif getattr(geometry, "cylinder", None) is not None:
+                    geometry.cylinder.radius = float(
+                        float(geometry.cylinder.radius) * float(scale_vector[0])
+                    )
+                    geometry.cylinder.length = float(
+                        float(geometry.cylinder.length) * float(scale_vector[2])
+                    )
+                    scale_pose_translation(element, scale_vector)
+                elif getattr(geometry, "mesh", None) is not None:
+                    base_scale = (
+                        np.array(geometry.mesh.scale, dtype=float)
+                        if geometry.mesh.scale is not None
+                        else unit_scale
+                    )
+                    geometry.mesh.scale = tuple(
+                        float(v) for v in (base_scale * scale_vector).tolist()
+                    )
+
+                    # Mesh-parametrized reduced links use metadata to preserve
+                    # the main visual placement in the exported URDF.
+                    if mesh_shape_link and mesh_pose is not None:
+                        element.pose = mesh_pose
+                    else:
+                        scale_pose_translation(element, scale_vector)
+
         for link_index, link_name in enumerate(self.link_names()):
             if link_name not in links_dict:
                 continue
@@ -680,70 +759,71 @@ class JaxSimModel(JaxsimDataclass):
                 inertia_tensor=inertia_tensor, validate=True
             )
 
-            # Update visuals and collisions
-            dims = hw_metadata.geometry[link_index]
+            dims = np.array(hw_metadata.geometry[link_index], dtype=float)
+            elements_to_update = collect_link_elements(links_dict[link_name])
 
-            elements_to_update_raw = (
-                links_dict[link_name].visual,
-                links_dict[link_name].collision,
-            )
-            elements_to_update = []
+            def find_reference_geometry(attr: str):
+                for element in elements_to_update:
+                    if (
+                        element is None
+                        or not hasattr(element, "geometry")
+                        or element.geometry is None
+                    ):
+                        continue
+                    geometry = getattr(element.geometry, attr, None)
+                    if geometry is not None:
+                        return geometry
+                return None
 
-            for entry in elements_to_update_raw:
-                if entry is None:
-                    continue
-                if isinstance(entry, (list, tuple)):
-                    elements_to_update.extend(e for e in entry if e is not None)
+            if shape == LinkParametrizableShape.Mesh:
+                scale_vector = dims
+            elif shape == LinkParametrizableShape.Box:
+                ref_box = find_reference_geometry("box")
+                if ref_box is None:
+                    scale_vector = unit_scale
                 else:
-                    elements_to_update.append(entry)
+                    base_size = np.array(ref_box.size, dtype=float)
+                    scale_vector = np.divide(
+                        dims,
+                        base_size,
+                        out=np.ones(3, dtype=float),
+                        where=np.abs(base_size) > 1e-12,
+                    )
+            elif shape == LinkParametrizableShape.Sphere:
+                ref_sphere = find_reference_geometry("sphere")
+                base_radius = float(ref_sphere.radius) if ref_sphere is not None else 1.0
+                s = float(dims[0]) / base_radius if abs(base_radius) > 1e-12 else 1.0
+                scale_vector = np.array([s, s, s], dtype=float)
+            elif shape == LinkParametrizableShape.Cylinder:
+                ref_cylinder = find_reference_geometry("cylinder")
+                base_radius = (
+                    float(ref_cylinder.radius) if ref_cylinder is not None else 1.0
+                )
+                base_length = (
+                    float(ref_cylinder.length) if ref_cylinder is not None else 1.0
+                )
+                s_radius = (
+                    float(dims[0]) / base_radius if abs(base_radius) > 1e-12 else 1.0
+                )
+                s_length = (
+                    float(dims[1]) / base_length if abs(base_length) > 1e-12 else 1.0
+                )
+                scale_vector = np.array([s_radius, s_radius, s_length], dtype=float)
+            else:
+                scale_vector = unit_scale
+
+            link_scale_factors[link_name] = np.array(scale_vector, dtype=float)
 
             element_pose = rod.Pose.from_transform(
                 transform=np.array(hw_metadata.L_H_vis[link_index]),
                 relative_to=link_name,
             )
-
-            for element in elements_to_update:
-                if (
-                    element is None
-                    or not hasattr(element, "geometry")
-                    or element.geometry is None
-                ):
-                    continue
-
-                # Update geometry
-                if shape == LinkParametrizableShape.Box:
-                    element.geometry.box.size = dims.tolist()
-                elif shape == LinkParametrizableShape.Sphere:
-                    element.geometry.sphere.radius = float(dims[0])
-                elif shape == LinkParametrizableShape.Cylinder:
-                    element.geometry.cylinder.radius = float(dims[0])
-                    element.geometry.cylinder.length = float(dims[1])
-                elif shape == LinkParametrizableShape.Mesh:
-                    # Preserve the original mesh unit scale and apply
-                    # only the parametrization scaling factors on top.
-                    if (
-                        not hasattr(element.geometry, "mesh")
-                        or element.geometry.mesh is None
-                    ):
-                        continue
-                    base_scale = (
-                        np.array(element.geometry.mesh.scale, dtype=float)
-                        if element.geometry.mesh.scale is not None
-                        else np.ones(3, dtype=float)
-                    )
-                    element.geometry.mesh.scale = tuple(
-                        float(v) for v in (base_scale * np.array(dims)).tolist()
-                    )
-                else:
-                    # This branch should be unreachable. Unsupported shapes should be
-                    # filtered out above.
-                    raise RuntimeError(
-                        f"Unexpected shape {shape} for link '{link_name}'. "
-                        "This should never be hit."
-                    )
-
-                # Update pose
-                element.pose = element_pose
+            scale_link_elements(
+                elements_to_update=elements_to_update,
+                scale_vector=scale_vector,
+                mesh_pose=element_pose,
+                mesh_shape_link=(shape == LinkParametrizableShape.Mesh),
+            )
 
             # Update joint poses
             for joint_index in range(self.number_of_joints()):
@@ -758,6 +838,51 @@ class JaxSimModel(JaxsimDataclass):
                             ),
                             relative_to=link_name,
                         )
+
+        # Propagate link scaling to descendants connected through fixed joints.
+        # These links are typically reduced away in the JaxSim model (e.g. feet
+        # attached to ankles) but still exist in the exported URDF tree.
+        updated = True
+        while updated:
+            updated = False
+            for joint in joints_dict.values():
+                if joint.type != "fixed":
+                    continue
+                parent_scale = link_scale_factors.get(joint.parent, None)
+                if parent_scale is None or joint.child in link_scale_factors:
+                    continue
+                link_scale_factors[joint.child] = np.array(parent_scale, dtype=float)
+                updated = True
+
+        # Scale fixed-joint offsets that are not part of the reduced joint set.
+        for joint_name, joint in joints_dict.items():
+            if joint.type != "fixed" or joint_name in reduced_joint_names:
+                continue
+            parent_scale = link_scale_factors.get(joint.parent, unit_scale)
+            if np.allclose(parent_scale, unit_scale):
+                continue
+            if joint.pose is None:
+                continue
+            transform = np.array(joint.pose.transform(), dtype=float)
+            transform[0:3, 3] = parent_scale * transform[0:3, 3]
+            joint.pose = rod.Pose.from_transform(
+                transform=transform,
+                relative_to=joint.pose.relative_to,
+            )
+
+        # Apply inherited scaling to non-reduced links (typically descendants
+        # connected via fixed joints).
+        for link_name, scale_vector in link_scale_factors.items():
+            if link_name in reduced_link_names:
+                continue
+            if np.allclose(scale_vector, unit_scale):
+                continue
+            if link_name not in links_dict:
+                continue
+            scale_link_elements(
+                elements_to_update=collect_link_elements(links_dict[link_name]),
+                scale_vector=scale_vector,
+            )
 
         # Restore continuous joint types for joints with infinite limits
         # to ensure valid URDF export (continuous joints should not have limits).
