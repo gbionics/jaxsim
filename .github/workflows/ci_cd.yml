@@ -45,7 +45,7 @@ jobs:
         run: twine check dist/*
 
       - name: Upload artifacts
-        uses: actions/upload-artifact@v6
+        uses: actions/upload-artifact@v7
         with:
           path: dist/*
           name: dist
@@ -77,7 +77,7 @@ jobs:
           python-version: ${{ matrix.python }}
 
       - name: Download Python packages
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: dist
           name: dist
@@ -138,7 +138,7 @@ jobs:
     steps:
 
       - name: Download Python packages
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           path: dist
           name: dist
