@@ -1,3 +1,5 @@
+import functools
+
 import jax
 import jax.numpy as jnp
 
@@ -76,10 +78,13 @@ def com_linear_velocity(
     return G_vl_WG
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def centroidal_momentum(
-    model: js.model.JaxSimModel, data: js.data.JaxSimModelData
+    model: js.model.JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Vector:
     r"""
     Compute the centroidal momentum of the model.
@@ -87,6 +92,9 @@ def centroidal_momentum(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The representation of the output centroidal momentum. If None, the active
+            velocity representation of the data is used.
 
     Returns:
         The centroidal momentum of the model.
@@ -98,16 +106,27 @@ def centroidal_momentum(
         and :math:`C = B` if the active velocity representation is body-fixed.
     """
 
-    ν = data.generalized_velocity
-    G_J = centroidal_momentum_jacobian(model=model, data=data)
+    output_representation = (
+        data.velocity_representation
+        if output_representation is None
+        else output_representation
+    )
+
+    ν = data.generalized_velocity(output_representation)
+    G_J = centroidal_momentum_jacobian(
+        model=model, data=data, output_representation=output_representation
+    )
 
     return G_J @ ν
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def centroidal_momentum_jacobian(
-    model: js.model.JaxSimModel, data: js.data.JaxSimModelData
+    model: js.model.JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Matrix:
     r"""
     Compute the Jacobian of the centroidal momentum of the model.
@@ -115,18 +134,27 @@ def centroidal_momentum_jacobian(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The representation of the output Jacobian. If None, the active
+            velocity representation of the data is used.
 
     Returns:
         The Jacobian of the centroidal momentum of the model.
 
     Note:
         The frame corresponding to the output representation of this Jacobian is either
-        :math:`G[W]`, if the active velocity representation is inertial-fixed or mixed,
-        or :math:`G[B]`, if the active velocity representation is body-fixed.
+        :math:`G[W]`, if the selected velocity representation is inertial-fixed or mixed,
+        or :math:`G[B]`, if the selected velocity representation is body-fixed.
 
     Note:
         This Jacobian is also known in the literature as Centroidal Momentum Matrix.
     """
+
+    output_representation = (
+        output_representation
+        if output_representation is not None
+        else data.velocity_representation
+    )
 
     # Compute the Jacobian of the total momentum with body-fixed output representation.
     # We convert the output representation either to G[W] or G[B] below.
@@ -139,13 +167,13 @@ def centroidal_momentum_jacobian(
 
     W_p_CoM = com_position(model=model, data=data)
 
-    match data.velocity_representation:
+    match output_representation:
         case VelRepr.Inertial | VelRepr.Mixed:
             W_H_G = W_H_GW = jnp.eye(4).at[0:3, 3].set(W_p_CoM)  # noqa: F841
         case VelRepr.Body:
             W_H_G = W_H_GB = W_H_B.at[0:3, 3].set(W_p_CoM)  # noqa: F841
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(output_representation)
 
     # Compute the transform for 6D forces.
     G_Xf_B = jaxsim.math.Adjoint.from_transform(transform=B_H_W @ W_H_G).T
@@ -153,10 +181,13 @@ def centroidal_momentum_jacobian(
     return G_Xf_B @ B_Jh
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def locked_centroidal_spatial_inertia(
-    model: js.model.JaxSimModel, data: js.data.JaxSimModelData
+    model: js.model.JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ):
     """
     Compute the locked centroidal spatial inertia of the model.
@@ -164,24 +195,34 @@ def locked_centroidal_spatial_inertia(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The representation of the output spatial inertia. If None, the active
+            velocity representation of the data is used.
 
     Returns:
         The locked centroidal spatial inertia of the model.
     """
 
-    with data.switch_velocity_representation(VelRepr.Body):
-        B_Mbb_B = js.model.locked_spatial_inertia(model=model, data=data)
+    output_representation = (
+        output_representation
+        if output_representation is not None
+        else data.velocity_representation
+    )
+
+    B_Mbb_B = js.model.locked_spatial_inertia(
+        model=model, data=data, output_representation=VelRepr.Body
+    )
 
     W_H_B = data._base_transform
     W_p_CoM = com_position(model=model, data=data)
 
-    match data.velocity_representation:
+    match output_representation:
         case VelRepr.Inertial | VelRepr.Mixed:
             W_H_G = W_H_GW = jnp.eye(4).at[0:3, 3].set(W_p_CoM)  # noqa: F841
         case VelRepr.Body:
             W_H_G = W_H_GB = W_H_B.at[0:3, 3].set(W_p_CoM)  # noqa: F841
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(output_representation)
 
     B_H_G = jaxsim.math.Transform.inverse(W_H_B) @ W_H_G
 
@@ -191,10 +232,13 @@ def locked_centroidal_spatial_inertia(
     return G_Xf_B @ B_Mbb_B @ B_Xv_G
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def average_centroidal_velocity(
-    model: js.model.JaxSimModel, data: js.data.JaxSimModelData
+    model: js.model.JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Vector:
     r"""
     Compute the average centroidal velocity of the model.
@@ -202,6 +246,9 @@ def average_centroidal_velocity(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The representation of the output average centroidal velocity. If None, the active
+            velocity representation of the data is used.
 
     Returns:
         The average centroidal velocity of the model.
@@ -213,16 +260,27 @@ def average_centroidal_velocity(
         and :math:`[C] = [B]` if the active velocity representation is body-fixed.
     """
 
-    ν = data.generalized_velocity
-    G_J = average_centroidal_velocity_jacobian(model=model, data=data)
+    output_representation = (
+        data.velocity_representation
+        if output_representation is None
+        else output_representation
+    )
+
+    ν = data.generalized_velocity(output_representation)
+    G_J = average_centroidal_velocity_jacobian(
+        model=model, data=data, output_representation=output_representation
+    )
 
     return G_J @ ν
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def average_centroidal_velocity_jacobian(
-    model: js.model.JaxSimModel, data: js.data.JaxSimModelData
+    model: js.model.JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Matrix:
     r"""
     Compute the Jacobian of the average centroidal velocity of the model.
@@ -230,6 +288,9 @@ def average_centroidal_velocity_jacobian(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The representation of the output Jacobian. If None, the active
+            velocity representation of the data is used.
 
     Returns:
         The Jacobian of the average centroidal velocity of the model.
@@ -240,16 +301,29 @@ def average_centroidal_velocity_jacobian(
         or :math:`G[B]`, if the active velocity representation is body-fixed.
     """
 
-    G_J = centroidal_momentum_jacobian(model=model, data=data)
-    G_Mbb = locked_centroidal_spatial_inertia(model=model, data=data)
+    output_representation = (
+        data.velocity_representation
+        if output_representation is None
+        else output_representation
+    )
+
+    G_J = centroidal_momentum_jacobian(
+        model=model, data=data, output_representation=output_representation
+    )
+    G_Mbb = locked_centroidal_spatial_inertia(
+        model=model, data=data, output_representation=output_representation
+    )
 
     return jnp.linalg.inv(G_Mbb) @ G_J
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def bias_acceleration(
-    model: js.model.JaxSimModel, data: js.data.JaxSimModelData
+    model: js.model.JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> jtp.Vector:
     r"""
     Compute the bias linear acceleration of the center of mass.
@@ -257,6 +331,9 @@ def bias_acceleration(
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        output_representation:
+            The representation of the output bias acceleration. If None, the active
+            velocity representation of the data is used.
 
     Returns:
         The bias linear acceleration of the center of mass in the active representation.
@@ -268,12 +345,20 @@ def bias_acceleration(
         and :math:`[C] = [B]` if the active velocity representation is body-fixed.
     """
 
+    output_representation = (
+        output_representation
+        if output_representation is not None
+        else data.velocity_representation
+    )
+
     # Compute the pose of all links with forward kinematics.
     W_H_L = data._link_transforms
 
     # Compute the bias acceleration of all links by zeroing the generalized velocity
     # in the active representation.
-    v̇_bias_WL = js.model.link_bias_accelerations(model=model, data=data)
+    v̇_bias_WL = js.model.link_bias_accelerations(
+        model=model, data=data, output_representation=output_representation
+    )
 
     def other_representation_to_body(
         C_v̇_WL: jtp.Vector, C_v_WC: jtp.Vector, L_H_C: jtp.Matrix, L_v_LC: jtp.Vector
@@ -291,7 +376,7 @@ def bias_acceleration(
 
     # We need here to get the body-fixed bias acceleration of the links.
     # Since it's computed in the active representation, we need to convert it to body.
-    match data.velocity_representation:
+    match output_representation:
 
         case VelRepr.Body:
             L_a_bias_WL = v̇_bias_WL
@@ -305,7 +390,10 @@ def bias_acceleration(
 
             L_v_LC = L_v_LW = jax.vmap(  # noqa: F841
                 lambda i: -js.link.velocity(
-                    model=model, data=data, link_index=i, output_vel_repr=VelRepr.Body
+                    model=model,
+                    data=data,
+                    link_index=i,
+                    output_vel_repr=VelRepr.Body,
                 )
             )(jnp.arange(model.number_of_links()))
 
@@ -324,7 +412,10 @@ def bias_acceleration(
 
             C_v_WC = LW_v_W_LW = jax.vmap(  # noqa: F841
                 lambda i: js.link.velocity(
-                    model=model, data=data, link_index=i, output_vel_repr=VelRepr.Mixed
+                    model=model,
+                    data=data,
+                    link_index=i,
+                    output_vel_repr=VelRepr.Mixed,
                 )
                 .at[3:6]
                 .set(jnp.zeros(3))
@@ -354,7 +445,7 @@ def bias_acceleration(
             )(jnp.arange(model.number_of_links()))
 
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(output_representation)
 
     # Compute the bias of the 6D momentum derivative.
     def bias_momentum_derivative_term(
@@ -392,7 +483,7 @@ def bias_acceleration(
     # Compute the position of the CoM.
     W_p_CoM = com_position(model=model, data=data)
 
-    match data.velocity_representation:
+    match output_representation:
 
         # G := G[W] = (W_p_CoM, [W])
         case VelRepr.Inertial | VelRepr.Mixed:
@@ -418,4 +509,4 @@ def bias_acceleration(
             return GB_v̇l_com_bias
 
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(output_representation)

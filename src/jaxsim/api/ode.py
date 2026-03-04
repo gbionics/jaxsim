@@ -1,3 +1,5 @@
+import functools
+
 import jax
 import jax.numpy as jnp
 
@@ -13,12 +15,14 @@ from .common import VelRepr
 # ==================================
 
 
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 def system_acceleration(
     model: js.model.JaxSimModel,
     data: js.data.JaxSimModelData,
     *,
     link_forces: jtp.MatrixLike | None = None,
     joint_torques: jtp.VectorLike | None = None,
+    output_representation: VelRepr | None = None,
 ) -> tuple[jtp.Vector, jtp.Vector, dict[str, jtp.PyTree]]:
     """
     Compute the system acceleration in the active representation.
@@ -30,11 +34,20 @@ def system_acceleration(
             The 6D forces to apply to the links expressed in the same
             velocity representation of data.
         joint_torques: The joint torques applied to the joints.
+        output_representation:
+            The desired output velocity representation. If None, the current
+            velocity representation of `data` is used.
 
     Returns:
         A tuple containing the base 6D acceleration in the active representation,
         the joint accelerations, and the contact state.
     """
+
+    output_representation = (
+        output_representation
+        if output_representation is not None
+        else data.velocity_representation
+    )
 
     # ====================
     # Validate input data
@@ -110,7 +123,7 @@ def system_acceleration(
     references = js.references.JaxSimModelReferences.build(
         model=model,
         data=data,
-        velocity_representation=data.velocity_representation,
+        velocity_representation=output_representation,
         link_forces=W_f_L_total,
     )
 
@@ -126,16 +139,19 @@ def system_acceleration(
         data=data,
         joint_forces=joint_torques,
         link_forces=references.link_forces(model=model, data=data),
+        output_representation=output_representation,
     )
 
     return v̇_WB, s̈, contact_state
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=["output_representation"])
 @js.common.named_scope
 def system_position_dynamics(
     data: js.data.JaxSimModelData,
     baumgarte_quaternion_regularization: jtp.FloatLike = 1.0,
+    *,
+    output_representation: VelRepr | None = None,
 ) -> tuple[jtp.Vector, jtp.Vector, jtp.Vector]:
     r"""
     Compute the dynamics of the system position.
@@ -144,6 +160,9 @@ def system_position_dynamics(
         data: The data of the considered model.
         baumgarte_quaternion_regularization:
             The Baumgarte regularization coefficient for adjusting the quaternion norm.
+        output_representation:
+            The desired output velocity representation. If None, the current
+            velocity representation of `data` is used.
 
     Returns:
         A tuple containing the derivative of the base position, the derivative of the
@@ -156,10 +175,19 @@ def system_position_dynamics(
         Where :math:`S(\cdot)` is the skew-symmetric matrix operator.
     """
 
+    output_representation = (
+        output_representation
+        if output_representation is not None
+        else data.velocity_representation
+    )
+
     ṡ = data.joint_velocities
     W_Q_B = data.base_orientation
-    W_ω_WB = data.base_velocity[3:6]
-    W_ṗ_B = data.base_velocity[0:3] + Skew.wedge(W_ω_WB) @ data.base_position
+    W_ω_WB = data.base_velocity(output_representation)[3:6]
+    W_ṗ_B = (
+        data.base_velocity(output_representation)[0:3]
+        + Skew.wedge(W_ω_WB) @ data.base_position
+    )
 
     W_Q̇_B = Quaternion.derivative(
         quaternion=W_Q_B,
@@ -179,6 +207,7 @@ def system_dynamics(
     *,
     link_forces: jtp.Vector | None = None,
     joint_torques: jtp.Vector | None = None,
+    output_representation: VelRepr | None = None,
     baumgarte_quaternion_regularization: jtp.FloatLike = 1.0,
 ) -> dict[str, jtp.Vector]:
     """
@@ -191,6 +220,9 @@ def system_dynamics(
             The 6D forces to apply to the links expressed in the frame corresponding to
             the velocity representation of `data`.
         joint_torques: The joint torques acting on the joints.
+        output_representation:
+            The desired output velocity representation. If None, the current
+            velocity representation of `data` is used.
         baumgarte_quaternion_regularization:
             The Baumgarte regularization coefficient used to adjust the norm of the
             quaternion (only used in integrators not operating on the SO(3) manifold).
@@ -201,18 +233,25 @@ def system_dynamics(
         joint velocities.
     """
 
-    with data.switch_velocity_representation(velocity_representation=VelRepr.Inertial):
-        W_v̇_WB, s̈, contact_state_derivative = system_acceleration(
-            model=model,
-            data=data,
-            joint_torques=joint_torques,
-            link_forces=link_forces,
-        )
+    output_representation = (
+        output_representation
+        if output_representation is not None
+        else data.velocity_representation
+    )
 
-        W_ṗ_B, W_Q̇_B, ṡ = system_position_dynamics(
-            data=data,
-            baumgarte_quaternion_regularization=baumgarte_quaternion_regularization,
-        )
+    W_v̇_WB, s̈, contact_state_derivative = system_acceleration(
+        model=model,
+        data=data,
+        joint_torques=joint_torques,
+        link_forces=link_forces,
+        output_representation=VelRepr.Inertial,
+    )
+
+    W_ṗ_B, W_Q̇_B, ṡ = system_position_dynamics(
+        data=data,
+        baumgarte_quaternion_regularization=baumgarte_quaternion_regularization,
+        output_representation=VelRepr.Inertial,
+    )
 
     return dict(
         base_position=W_ṗ_B,

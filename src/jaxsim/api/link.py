@@ -234,12 +234,13 @@ def com_position(
     )
 
 
-@functools.partial(jax.jit, static_argnames=["output_vel_repr"])
+@functools.partial(jax.jit, static_argnames=["input_representation", "output_vel_repr"])
 def jacobian(
     model: js.model.JaxSimModel,
     data: js.data.JaxSimModelData,
     *,
     link_index: jtp.IntLike,
+    input_representation: VelRepr | None = None,
     output_vel_repr: VelRepr | None = None,
 ) -> jtp.Matrix:
     r"""
@@ -249,6 +250,8 @@ def jacobian(
         model: The model to consider.
         data: The data of the considered model.
         link_index: The index of the link.
+        input_representation:
+            The input velocity representation of the free-floating jacobian.
         output_vel_repr:
             The output velocity representation of the free-floating jacobian.
 
@@ -268,8 +271,14 @@ def jacobian(
         idx=link_index,
     )
 
+    input_representation = (
+        input_representation
+        if input_representation is not None
+        else data.velocity_representation
+    )
+
     output_vel_repr = (
-        output_vel_repr if output_vel_repr is not None else data.velocity_representation
+        output_vel_repr if output_vel_repr is not None else input_representation
     )
 
     # Compute the doubly-left free-floating full jacobian.
@@ -283,7 +292,7 @@ def jacobian(
     B_J_WL_B = jnp.hstack([jnp.ones(5), κb]) * B_J_full_WX_B
 
     # Adjust the input representation such that `J_WL_I @ I_ν`.
-    match data.velocity_representation:
+    match input_representation:
         case VelRepr.Inertial:
             W_H_B = data._base_transform
             B_X_W = Adjoint.from_transform(transform=W_H_B, inverse=True)
@@ -303,7 +312,7 @@ def jacobian(
             )
 
         case _:
-            raise ValueError(data.velocity_representation)
+            raise ValueError(input_representation)
 
     B_H_L = B_H_Li[link_index]
 
@@ -378,18 +387,19 @@ def velocity(
     )
 
     # Get the generalized velocity in the input velocity representation.
-    I_ν = data.generalized_velocity
+    I_ν = data.generalized_velocity()
 
     # Compute the link velocity in the output velocity representation.
     return O_J_WL_I @ I_ν
 
 
-@functools.partial(jax.jit, static_argnames=["output_vel_repr"])
+@functools.partial(jax.jit, static_argnames=["input_representation", "output_vel_repr"])
 def jacobian_derivative(
     model: js.model.JaxSimModel,
     data: js.data.JaxSimModelData,
     *,
     link_index: jtp.IntLike,
+    input_representation: VelRepr | None = None,
     output_vel_repr: VelRepr | None = None,
 ) -> jtp.Matrix:
     r"""
@@ -399,6 +409,8 @@ def jacobian_derivative(
         model: The model to consider.
         data: The data of the considered model.
         link_index: The index of the link.
+        input_representation:
+            The input velocity representation of the free-floating jacobian.
         output_vel_repr:
             The output velocity representation of the free-floating jacobian derivative.
 
@@ -418,12 +430,21 @@ def jacobian_derivative(
         idx=link_index,
     )
 
+    input_representation = (
+        input_representation
+        if input_representation is not None
+        else data.velocity_representation
+    )
+
     output_vel_repr = (
-        output_vel_repr if output_vel_repr is not None else data.velocity_representation
+        output_vel_repr if output_vel_repr is not None else input_representation
     )
 
     O_J̇_WL_I = js.model.generalized_free_floating_jacobian_derivative(
-        model=model, data=data, output_vel_repr=output_vel_repr
+        model=model,
+        data=data,
+        input_representation=input_representation,
+        output_vel_repr=output_vel_repr,
     )[link_index]
 
     return O_J̇_WL_I

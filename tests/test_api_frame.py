@@ -214,7 +214,7 @@ def test_frame_jacobian_derivative(
     # ===============
 
     # Get the generalized velocity.
-    I_ν = data.generalized_velocity
+    I_ν = data.generalized_velocity()
 
     # Compute J̇.
     O_J̇_WF_I = jax.vmap(
@@ -257,11 +257,9 @@ def test_frame_jacobian_derivative(
         return q
 
     def compute_q̇(data: js.data.JaxSimModelData) -> jax.Array:
-        with data.switch_velocity_representation(VelRepr.Body):
-            B_ω_WB = data.base_velocity[3:6]
+        B_ω_WB = data.base_velocity(VelRepr.Body)[3:6]
 
-        with data.switch_velocity_representation(VelRepr.Mixed):
-            W_ṗ_B = data.base_velocity[0:3]
+        W_ṗ_B = data.base_velocity(VelRepr.Mixed)[0:3]
 
         W_Q̇_B = Quaternion.derivative(
             quaternion=data.base_orientation,
