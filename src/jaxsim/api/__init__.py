@@ -1,5 +1,5 @@
 from . import common  # isort:skip
-from . import model, data  # isort:skip
+from . import model, data, rollout  # isort:skip
 from . import (
     actuation_model,
     com,
@@ -11,4 +11,5 @@ from . import (
     link,
     ode,
     references,
+    rollout,
 )

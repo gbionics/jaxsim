@@ -1270,6 +1270,134 @@ def forward_dynamics(
     )
 
 
+@functools.partial(jax.jit, static_argnames=["velocity_representation"])
+@js.common.named_scope
+def _active_link_forces_to_inertial(
+    model: JaxSimModel,
+    *,
+    link_forces: jtp.MatrixLike | None,
+    velocity_representation: VelRepr,
+    link_transforms: jtp.Matrix,
+) -> jtp.Matrix:
+    f_L = (
+        jnp.atleast_2d(link_forces.squeeze())
+        if link_forces is not None
+        else jnp.zeros((model.number_of_links(), 6))
+    ).astype(float)
+
+    if velocity_representation is VelRepr.Inertial:
+        return f_L
+
+    match velocity_representation:
+        case VelRepr.Body:
+            W_Xf_L = Adjoint.from_transform(
+                transform=link_transforms, inverse=True
+            ).swapaxes(-1, -2)
+        case VelRepr.Mixed:
+            W_H_LW = link_transforms.at[..., 0:3, 0:3].set(jnp.eye(3))
+            W_Xf_L = Adjoint.from_transform(
+                transform=W_H_LW, inverse=True
+            ).swapaxes(-1, -2)
+        case _:
+            raise ValueError(velocity_representation)
+
+    return jnp.einsum("...ij,...j->...i", W_Xf_L, f_L).astype(float)
+
+
+@jax.jit
+@js.common.named_scope
+def _apparent_base_acceleration_to_active(
+    model: JaxSimModel,
+    *,
+    state: js.data.JaxSimModelState,
+    base_transform: jtp.Matrix,
+    W_v̇_WB: jtp.Vector,
+) -> jtp.Vector:
+    W_v_WB = jnp.hstack([state._base_linear_velocity, state._base_angular_velocity]).astype(
+        float
+    )
+
+    def to_active(
+        W_v̇_WB: jtp.Vector, W_H_C: jtp.Matrix, W_v_WB: jtp.Vector, W_v_WC: jtp.Vector
+    ) -> jtp.Vector:
+        C_X_W = Adjoint.from_transform(transform=W_H_C, inverse=True)
+        return C_X_W @ (W_v̇_WB - Cross.vx(W_v_WC) @ W_v_WB)
+
+    match state.velocity_representation:
+        case VelRepr.Inertial:
+            W_H_C = jnp.eye(4)
+            W_v_WC = jnp.zeros(6)
+        case VelRepr.Body:
+            W_H_C = base_transform
+            W_v_WC = W_v_WB
+        case VelRepr.Mixed:
+            W_H_C = base_transform.at[0:3, 0:3].set(jnp.eye(3))
+            active_base_velocity = state.inertial_to_other_representation(
+                array=W_v_WB,
+                other_representation=VelRepr.Mixed,
+                transform=base_transform,
+                is_force=False,
+            ).squeeze()
+            W_v_WC = jnp.zeros(6).at[0:3].set(active_base_velocity[0:3])
+        case _:
+            raise ValueError(state.velocity_representation)
+
+    C_v̇_WB = to_active(
+        W_v̇_WB=W_v̇_WB,
+        W_H_C=W_H_C,
+        W_v_WB=W_v_WB,
+        W_v_WC=W_v_WC,
+    )
+
+    return C_v̇_WB if model.floating_base() else jnp.zeros(6)
+
+
+@jax.jit
+@js.common.named_scope
+def _forward_dynamics_aba_from_state(
+    model: JaxSimModel,
+    *,
+    state: js.data.JaxSimModelState,
+    kinematics: js.data.JaxSimModelKinematicCache,
+    joint_forces: jtp.VectorLike | None = None,
+    link_forces: jtp.MatrixLike | None = None,
+) -> tuple[jtp.Vector, jtp.Vector]:
+    τ = (
+        jnp.atleast_1d(joint_forces.squeeze())
+        if joint_forces is not None
+        else jnp.zeros_like(state.joint_positions)
+    ).astype(float)
+
+    W_f_L = _active_link_forces_to_inertial(
+        model=model,
+        link_forces=link_forces,
+        velocity_representation=state.velocity_representation,
+        link_transforms=kinematics.link_transforms,
+    )
+
+    W_v̇_WB, s̈ = jaxsim.rbda.aba(
+        model=model,
+        base_position=state.base_position,
+        base_quaternion=state.base_orientation,
+        joint_positions=state.joint_positions,
+        base_linear_velocity=state._base_linear_velocity,
+        base_angular_velocity=state._base_angular_velocity,
+        joint_velocities=state.joint_velocities,
+        joint_forces=τ,
+        link_forces=W_f_L,
+        standard_gravity=model.gravity,
+    )
+
+    C_v̇_WB = _apparent_base_acceleration_to_active(
+        model=model,
+        state=state,
+        base_transform=kinematics.base_transform,
+        W_v̇_WB=W_v̇_WB,
+    )
+
+    return C_v̇_WB.astype(float), s̈.astype(float)
+
+
 @jax.jit
 @js.common.named_scope
 def forward_dynamics_aba(
@@ -1297,117 +1425,17 @@ def forward_dynamics_aba(
         considered joint forces and external forces.
     """
 
-    # ============
-    # Prepare data
-    # ============
-
-    # Build joint forces, if not provided.
-    τ = (
-        jnp.atleast_1d(joint_forces.squeeze())
-        if joint_forces is not None
-        else jnp.zeros_like(data.joint_positions)
-    )
-
-    # Build link forces, if not provided.
-    f_L = (
-        jnp.atleast_2d(link_forces.squeeze())
-        if link_forces is not None
-        else jnp.zeros((model.number_of_links(), 6))
-    )
-
-    # Create a references object that simplifies converting among representations.
-    references = js.references.JaxSimModelReferences.build(
+    return _forward_dynamics_aba_from_state(
         model=model,
-        joint_force_references=τ,
-        link_forces=f_L,
-        data=data,
-        velocity_representation=data.velocity_representation,
+        state=data.state,
+        kinematics=js.data.JaxSimModelKinematicCache(
+            _base_transform=data._base_transform,
+            _link_transforms=data._link_transforms,
+            _link_velocities=data._link_velocities,
+        ),
+        joint_forces=joint_forces,
+        link_forces=link_forces,
     )
-
-    # Extract the state in inertial-fixed representation.
-    with data.switch_velocity_representation(VelRepr.Inertial):
-        W_p_B = data.base_position
-        W_v_WB = data.base_velocity
-        W_Q_B = data.base_orientation
-        s = data.joint_positions
-        ṡ = data.joint_velocities
-
-    # Extract the inputs in inertial-fixed representation.
-    W_f_L = references._link_forces
-    τ = references._joint_force_references
-
-    # ========================
-    # Compute forward dynamics
-    # ========================
-
-    W_v̇_WB, s̈ = jaxsim.rbda.aba(
-        model=model,
-        base_position=W_p_B,
-        base_quaternion=W_Q_B,
-        joint_positions=s,
-        base_linear_velocity=W_v_WB[0:3],
-        base_angular_velocity=W_v_WB[3:6],
-        joint_velocities=ṡ,
-        joint_forces=τ,
-        link_forces=W_f_L,
-        standard_gravity=model.gravity,
-    )
-
-    # =============
-    # Adjust output
-    # =============
-
-    def to_active(
-        W_v̇_WB: jtp.Vector, W_H_C: jtp.Matrix, W_v_WB: jtp.Vector, W_v_WC: jtp.Vector
-    ) -> jtp.Vector:
-        """
-        Convert the inertial-fixed apparent base acceleration W_v̇_WB to
-        another representation C_v̇_WB expressed in a generic frame C.
-        """
-
-        # In Mixed representation, we need to include a cross product in ℝ⁶.
-        # In Inertial and Body representations, the cross product is always zero.
-        C_X_W = Adjoint.from_transform(transform=W_H_C, inverse=True)
-        return C_X_W @ (W_v̇_WB - Cross.vx(W_v_WC) @ W_v_WB)
-
-    match data.velocity_representation:
-        case VelRepr.Inertial:
-            # In this case C=W
-            W_H_C = W_H_W = jnp.eye(4)  # noqa: F841
-            W_v_WC = W_v_WW = jnp.zeros(6)  # noqa: F841
-
-        case VelRepr.Body:
-            # In this case C=B
-            W_H_C = W_H_B = data._base_transform
-            W_v_WC = W_v_WB
-
-        case VelRepr.Mixed:
-            # In this case C=B[W]
-            W_H_B = data._base_transform
-            W_H_C = W_H_BW = W_H_B.at[0:3, 0:3].set(jnp.eye(3))  # noqa: F841
-            W_ṗ_B = data.base_velocity[0:3]
-            W_v_WC = W_v_W_BW = jnp.zeros(6).at[0:3].set(W_ṗ_B)  # noqa: F841
-
-        case _:
-            raise ValueError(data.velocity_representation)
-
-    # We need to convert the derivative of the base velocity to the active
-    # representation. In Mixed representation, this conversion is not a plain
-    # transformation with just X, but it also involves a cross product in ℝ⁶.
-    C_v̇_WB = to_active(
-        W_v̇_WB=W_v̇_WB,
-        W_H_C=W_H_C,
-        W_v_WB=W_v_WB,
-        W_v_WC=W_v_WC,
-    )
-
-    # The ABA algorithm already returns a zero base 6D acceleration for
-    # fixed-based models. However, the to_active function introduces an
-    # additional acceleration component in Mixed representation.
-    # Here below we make sure that the base acceleration is zero.
-    C_v̇_WB = C_v̇_WB if model.floating_base() else jnp.zeros(6)
-
-    return C_v̇_WB.astype(float), s̈.astype(float)
 
 
 @jax.jit
@@ -2602,7 +2630,9 @@ def update_hw_parameters(
 # ==========
 
 
-@jax.jit
+@functools.partial(
+    jax.jit, static_argnames=["contact_mode", "precision_policy"]
+)
 @js.common.named_scope
 def step(
     model: JaxSimModel,
@@ -2610,6 +2640,8 @@ def step(
     *,
     link_forces: jtp.MatrixLike | None = None,
     joint_force_references: jtp.VectorLike | None = None,
+    contact_mode: str = "enabled",
+    precision_policy=None,
 ) -> js.data.JaxSimModelData:
     """
     Perform a simulation step.
@@ -2676,10 +2708,15 @@ def step(
         data=data,
         link_forces=W_f_L_external,
         joint_torques=τ_total,
+        contact_mode=contact_mode,
+        precision_policy=precision_policy,
     )
 
     data_tf = model.contact_model.update_velocity_after_impact(
-        model=model, data=data_tf
+        model=model,
+        data=data_tf,
+        contact_mode=contact_mode,
+        precision_policy=precision_policy,
     )
 
     return data_tf

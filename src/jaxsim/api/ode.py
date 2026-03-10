@@ -1,3 +1,5 @@
+import functools
+
 import jax
 import jax.numpy as jnp
 
@@ -19,6 +21,8 @@ def system_acceleration(
     *,
     link_forces: jtp.MatrixLike | None = None,
     joint_torques: jtp.VectorLike | None = None,
+    contact_mode: str = "enabled",
+    precision_policy=None,
 ) -> tuple[jtp.Vector, jtp.Vector, dict[str, jtp.PyTree]]:
     """
     Compute the system acceleration in the active representation.
@@ -63,6 +67,8 @@ def system_acceleration(
             data=data,
             link_forces=f_L,
             joint_torques=joint_torques,
+            contact_mode=contact_mode,
+            precision_policy=precision_policy,
         )
 
         # Update the contact state data. This is necessary only for the contact models
@@ -171,7 +177,9 @@ def system_position_dynamics(
     return W_ṗ_B, W_Q̇_B, ṡ
 
 
-@jax.jit
+@functools.partial(
+    jax.jit, static_argnames=["contact_mode", "precision_policy"]
+)
 @js.common.named_scope
 def system_dynamics(
     model: js.model.JaxSimModel,
@@ -180,6 +188,8 @@ def system_dynamics(
     link_forces: jtp.Vector | None = None,
     joint_torques: jtp.Vector | None = None,
     baumgarte_quaternion_regularization: jtp.FloatLike = 1.0,
+    contact_mode: str = "enabled",
+    precision_policy=None,
 ) -> dict[str, jtp.Vector]:
     """
     Compute the dynamics of the system.
@@ -207,6 +217,8 @@ def system_dynamics(
             data=data,
             joint_torques=joint_torques,
             link_forces=link_forces,
+            contact_mode=contact_mode,
+            precision_policy=precision_policy,
         )
 
         W_ṗ_B, W_Q̇_B, ṡ = system_position_dynamics(
