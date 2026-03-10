@@ -277,7 +277,10 @@ class ContactModel(JaxsimDataclass):
 
     @abc.abstractmethod
     def update_velocity_after_impact(
-        self: type[Self], model: js.model.JaxSimModel, data: js.data.JaxSimModelData
+        self: type[Self],
+        model: js.model.JaxSimModel,
+        data: js.data.JaxSimModelData,
+        **kwargs,
     ) -> js.data.JaxSimModelData:
         """
         Update the velocity after an impact.

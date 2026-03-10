@@ -1,9 +1,7 @@
-import jax
 import jax.numpy as jnp
 
 import jaxsim.api as js
 import jaxsim.typing as jtp
-from jaxsim.math import Skew
 
 
 def collidable_points_pos_vel(
@@ -11,6 +9,7 @@ def collidable_points_pos_vel(
     *,
     link_transforms: jtp.Matrix,
     link_velocities: jtp.Matrix,
+    contact_mode: str = "enabled",
 ) -> tuple[jtp.Matrix, jtp.Matrix]:
     """
 
@@ -25,41 +24,33 @@ def collidable_points_pos_vel(
         A tuple containing the position and linear velocity of the enabled collidable points.
     """
 
-    # Get the indices of the enabled collidable points.
-    indices_of_enabled_collidable_points = (
-        model.kin_dyn_parameters.contact_parameters.indices_of_enabled_collidable_points
-    )
+    contact_parameters = model.kin_dyn_parameters.contact_parameters
+    enabled_mask = jnp.array(contact_parameters.enabled, dtype=bool)
+    parent_link_indices = jnp.array(contact_parameters.body, dtype=int)
+    collidable_points = contact_parameters.point
 
-    parent_link_idx_of_enabled_collidable_points = jnp.array(
-        model.kin_dyn_parameters.contact_parameters.body, dtype=int
-    )[indices_of_enabled_collidable_points]
-
-    L_p_Ci = model.kin_dyn_parameters.contact_parameters.point[
-        indices_of_enabled_collidable_points
-    ]
-
-    if len(indices_of_enabled_collidable_points) == 0:
+    if len(parent_link_indices) == 0:
         return jnp.array(0).astype(float), jnp.empty(0).astype(float)
 
-    def process_point_kinematics(
-        Li_p_C: jtp.Vector, parent_body: jtp.Int
-    ) -> tuple[jtp.Vector, jtp.Vector]:
+    parent_link_transforms = link_transforms[parent_link_indices]
+    parent_link_velocities = link_velocities[parent_link_indices]
 
-        # Compute the position of the collidable point.
-        W_p_Ci = (link_transforms[parent_body] @ jnp.hstack([Li_p_C, 1]))[0:3]
+    W_p_L = parent_link_transforms[..., 0:3, 3]
+    W_R_L = parent_link_transforms[..., 0:3, 0:3]
+    W_p_Ci = W_p_L + jnp.einsum("...ij,...j->...i", W_R_L, collidable_points)
 
-        # Compute the linear part of the mixed velocity Ci[W]_v_{W,Ci}.
-        CW_vl_WCi = (
-            jnp.block([jnp.eye(3), -Skew.wedge(vector=W_p_Ci).squeeze()])
-            @ link_velocities[parent_body].squeeze()
-        )
+    W_v_WL = parent_link_velocities[..., 0:3]
+    W_ω_WL = parent_link_velocities[..., 3:6]
 
-        return W_p_Ci, CW_vl_WCi
+    # The collidable-point coordinate derivative is the mixed linear velocity of
+    # the implicit point frame rigidly attached to the parent link.
+    CW_vl_WC = W_v_WL + jnp.cross(W_ω_WL, W_p_Ci)
 
-    # Process all the collidable points in parallel.
-    W_p_Ci, CW_vl_WC = jax.vmap(process_point_kinematics)(
-        L_p_Ci,
-        parent_link_idx_of_enabled_collidable_points,
-    )
-
-    return W_p_Ci, CW_vl_WC
+    match contact_mode:
+        case "enabled":
+            indices = contact_parameters.indices_of_enabled_collidable_points
+            return W_p_Ci[indices], CW_vl_WC[indices]
+        case "masked":
+            return W_p_Ci, jnp.where(enabled_mask[:, None], CW_vl_WC, 0.0)
+        case _:
+            raise ValueError(contact_mode)

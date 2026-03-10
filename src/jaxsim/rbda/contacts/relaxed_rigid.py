@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 from collections.abc import Callable
 from typing import Any
 
@@ -11,6 +12,7 @@ import optax
 from optax.tree_utils import tree_get
 
 import jaxsim.api as js
+from jaxsim.config import PrecisionPolicy
 import jaxsim.typing as jtp
 from jaxsim.api.common import ModelDataWithVelocityRepresentation, VelRepr
 
@@ -187,6 +189,10 @@ class RelaxedRigidContactsParams(common.ContactsParams):
 class RelaxedRigidContacts(common.ContactModel):
     """Relaxed rigid contacts model."""
 
+    solver_mode: jax_dataclasses.Static[str] = dataclasses.field(
+        default="adaptive", kw_only=True
+    )
+
     _solver_options_keys: jax_dataclasses.Static[tuple[str, ...]] = dataclasses.field(
         default=("tol", "maxiter", "memory_size", "scale_init_precond"), kw_only=True
     )
@@ -210,6 +216,7 @@ class RelaxedRigidContacts(common.ContactModel):
     def build(
         cls: type[Self],
         solver_options: dict[str, Any] | None = None,
+        solver_mode: str = "adaptive",
         **kwargs,
     ) -> Self:
         """
@@ -244,6 +251,7 @@ class RelaxedRigidContacts(common.ContactModel):
             ) from exc
 
         return cls(
+            solver_mode=solver_mode,
             _solver_options_keys=tuple(solver_options.keys()),
             _solver_options_values=tuple(solver_options.values()),
             **kwargs,
@@ -265,7 +273,10 @@ class RelaxedRigidContacts(common.ContactModel):
         return {}
 
     def update_velocity_after_impact(
-        self: type[Self], model: js.model.JaxSimModel, data: js.data.JaxSimModelData
+        self: type[Self],
+        model: js.model.JaxSimModel,
+        data: js.data.JaxSimModelData,
+        **kwargs,
     ) -> js.data.JaxSimModelData:
         """
         Update the velocity after an impact.
@@ -280,7 +291,9 @@ class RelaxedRigidContacts(common.ContactModel):
 
         return data
 
-    @jax.jit
+    @functools.partial(
+        jax.jit, static_argnames=["contact_mode", "precision_policy"]
+    )
     def compute_contact_forces(
         self,
         model: js.model.JaxSimModel,
@@ -288,6 +301,8 @@ class RelaxedRigidContacts(common.ContactModel):
         *,
         link_forces: jtp.MatrixLike | None = None,
         joint_force_references: jtp.VectorLike | None = None,
+        contact_mode: str = "enabled",
+        precision_policy: PrecisionPolicy | None = None,
     ) -> tuple[jtp.Matrix, dict[str, jtp.PyTree]]:
         """
         Compute the contact forces.
@@ -304,6 +319,8 @@ class RelaxedRigidContacts(common.ContactModel):
         Returns:
             A tuple containing as first element the computed contact forces in inertial representation.
         """
+
+        precision_policy = PrecisionPolicy.resolve(precision_policy)
 
         link_forces = jnp.atleast_2d(
             jnp.array(link_forces, dtype=float).squeeze()
@@ -328,7 +345,10 @@ class RelaxedRigidContacts(common.ContactModel):
         # Compute the position and linear velocities (mixed representation) of
         # all collidable points belonging to the robot.
         position, velocity = js.contact.collidable_point_kinematics(
-            model=model, data=data
+            model=model, data=data, contact_mode=contact_mode
+        )
+        enabled_mask = js.contact.collidable_point_enabled_mask(
+            model=model, contact_mode=contact_mode
         )
 
         # Compute the penetration depth and velocity of the collidable points.
@@ -346,11 +366,14 @@ class RelaxedRigidContacts(common.ContactModel):
             position_constraint=position_constraint,
             velocity_constraint=velocity,
             parameters=model.contact_params,
+            contact_mode=contact_mode,
         )
 
         # Compute the transforms of the implicit frames corresponding to the
         # collidable points.
-        W_H_C = js.contact.transforms(model=model, data=data)
+        W_H_C = js.contact.transforms(
+            model=model, data=data, contact_mode=contact_mode
+        )
 
         with (
             data.switch_velocity_representation(VelRepr.Mixed),
@@ -371,15 +394,21 @@ class RelaxedRigidContacts(common.ContactModel):
 
             # Compute the linear part of the Jacobian of the collidable points
             Jl_WC = jnp.vstack(
-                jax.vmap(lambda J, δ: J * (δ > 0))(
-                    js.contact.jacobian(model=model, data=data)[:, :3, :], δ
+                jax.vmap(lambda J, is_active: J * is_active)(
+                    js.contact.jacobian(
+                        model=model, data=data, contact_mode=contact_mode
+                    )[:, :3, :],
+                    jnp.logical_and(δ > 0, enabled_mask),
                 )
             )
 
             # Compute the linear part of the Jacobian derivative of the collidable points
             J̇l_WC = jnp.vstack(
-                jax.vmap(lambda J̇, δ: J̇ * (δ > 0))(
-                    js.contact.jacobian_derivative(model=model, data=data)[:, :3], δ
+                jax.vmap(lambda J̇, is_active: J̇ * is_active)(
+                    js.contact.jacobian_derivative(
+                        model=model, data=data, contact_mode=contact_mode
+                    )[:, :3],
+                    jnp.logical_and(δ > 0, enabled_mask),
                 ),
             )
 
@@ -391,12 +420,14 @@ class RelaxedRigidContacts(common.ContactModel):
 
         # Calculate quantities for the linear optimization problem.
         R = jnp.diag(r)
-        A = G_contacts + R
-        b = CW_al_free_WC - a_ref
+        A = precision_policy.cast(G_contacts + R, kind="contact")
+        b = precision_policy.cast(CW_al_free_WC - a_ref, kind="contact")
 
         # Create the objective function to minimize as a lambda computing the cost
         # from the optimized variables x.
-        objective = lambda x, A, b: jnp.sum(jnp.square(A @ x + b))
+        objective = lambda x, A, b: jnp.sum(
+            jnp.square(precision_policy.cast(A @ x + b, kind="reduction"))
+        )
 
         # ========================================
         # Helper function to run the L-BFGS solver
@@ -443,7 +474,6 @@ class RelaxedRigidContacts(common.ContactModel):
 
                 return params, state
 
-            # TODO: maybe fix the number of iterations and switch to scan?
             def continuing_criterion(carry: OptimizationCarry) -> jtp.Bool:
 
                 _, state = carry
@@ -454,9 +484,19 @@ class RelaxedRigidContacts(common.ContactModel):
 
                 return (iter_num == 0) | ((iter_num < maxiter) & (err >= tol))
 
-            final_params, final_state = jax.lax.while_loop(
-                continuing_criterion, step, init_carry
-            )
+            match self.solver_mode:
+                case "adaptive":
+                    final_params, final_state = jax.lax.while_loop(
+                        continuing_criterion, step, init_carry
+                    )
+                case "fixed_iterations":
+                    (final_params, final_state), _ = jax.lax.scan(
+                        lambda carry, _: (step(carry), None),
+                        init_carry,
+                        xs=jnp.arange(maxiter),
+                    )
+                case _:
+                    raise ValueError(self.solver_mode)
 
             return final_params, final_state
 
@@ -465,20 +505,26 @@ class RelaxedRigidContacts(common.ContactModel):
         # ======================================
 
         # Initialize the optimized forces with a linear Hunt/Crossley model.
-        init_params = jax.vmap(
-            lambda p, v: soft.SoftContacts.hunt_crossley_contact_model(
-                position=p,
-                velocity=v,
-                terrain=model.terrain,
-                K=1e6,
-                D=2e3,
-                p=0.5,
-                q=0.5,
-                # No tangential initial forces.
-                mu=0.0,
-                tangential_deformation=jnp.zeros(3),
-            )[0]
-        )(position, velocity).flatten()
+        init_params = precision_policy.cast(
+            jax.vmap(
+                lambda p, v: soft.SoftContacts.hunt_crossley_contact_model(
+                    position=p,
+                    velocity=v,
+                    terrain=model.terrain,
+                    K=1e6,
+                    D=2e3,
+                    p=0.5,
+                    q=0.5,
+                    # No tangential initial forces.
+                    mu=0.0,
+                    tangential_deformation=jnp.zeros(3),
+                )[0]
+            )(position, velocity).flatten(),
+            kind="contact",
+        )
+        init_params = jnp.where(
+            jnp.repeat(enabled_mask, repeats=3), init_params, jnp.zeros_like(init_params)
+        )
 
         # Get the solver options.
         solver_options = self.solver_options
@@ -498,7 +544,7 @@ class RelaxedRigidContacts(common.ContactModel):
 
         # Compute the 3D linear force in C[W] frame.
         solution, _ = jax.lax.custom_linear_solve(
-            lambda x: A @ x,
+            lambda x: jnp.matmul(A, x, precision=precision_policy.matmul_precision),
             -b,
             solve=solve_fn,
             symmetric=True,
@@ -507,6 +553,7 @@ class RelaxedRigidContacts(common.ContactModel):
 
         # Reshape the optimized solution to be a matrix of 3D contact forces.
         CW_fl_C = solution.reshape(-1, 3)
+        CW_fl_C = jnp.where(enabled_mask[:, None], CW_fl_C, 0.0)
 
         # Convert the contact forces from mixed to inertial-fixed representation.
         W_f_C = jax.vmap(
@@ -528,6 +575,7 @@ class RelaxedRigidContacts(common.ContactModel):
         position_constraint: jtp.Vector,
         velocity_constraint: jtp.Vector,
         parameters: RelaxedRigidContactsParams,
+        contact_mode: str = "enabled",
     ) -> tuple:
         """
         Compute the contact jacobian and the reference acceleration.
@@ -560,14 +608,9 @@ class RelaxedRigidContacts(common.ContactModel):
             )
         )
 
-        # Get the indices of the enabled collidable points.
-        indices_of_enabled_collidable_points = (
-            model.kin_dyn_parameters.contact_parameters.indices_of_enabled_collidable_points
+        parent_link_idx_of_enabled_collidable_points, _, enabled_mask = (
+            js.contact._contact_layout(model=model, contact_mode=contact_mode)
         )
-
-        parent_link_idx_of_enabled_collidable_points = jnp.array(
-            model.kin_dyn_parameters.contact_parameters.body, dtype=int
-        )[indices_of_enabled_collidable_points]
 
         # Compute the 6D inertia matrices of all links.
         M_L = js.model.link_spatial_inertia_matrices(model=model)
@@ -621,6 +664,7 @@ class RelaxedRigidContacts(common.ContactModel):
             link_idx: jtp.Int,
             pos: jtp.Vector,
             vel: jtp.Vector,
+            enabled: jtp.Bool,
         ) -> tuple[jtp.Vector, jtp.Matrix, jtp.Vector, jtp.Vector]:
 
             # Compute the reference acceleration.
@@ -634,7 +678,7 @@ class RelaxedRigidContacts(common.ContactModel):
             )
 
             # Return the computed values, setting them to zero in case of no contact.
-            is_active = (pos.dot(pos) > 0).astype(float)
+            is_active = jnp.logical_and(enabled, pos.dot(pos) > 0).astype(float)
             return jax.tree.map(
                 lambda x: jnp.atleast_1d(x) * is_active, (a_ref, R, K, D)
             )
@@ -646,6 +690,7 @@ class RelaxedRigidContacts(common.ContactModel):
                     link_idx=parent_link_idx_of_enabled_collidable_points,
                     pos=position_constraint,
                     vel=velocity_constraint,
+                    enabled=enabled_mask,
                 ),
             ),
         )

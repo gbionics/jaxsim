@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import dataclasses
+import functools
 from typing import Any
 
 import jax
@@ -219,7 +220,9 @@ class RigidContacts(ContactModel):
 
         return BW_ν_post_impact[0 : M.shape[0]]
 
-    @jax.jit
+    @functools.partial(
+        jax.jit, static_argnames=["contact_mode", "precision_policy"]
+    )
     @js.common.named_scope
     def compute_contact_forces(
         self,
@@ -228,6 +231,8 @@ class RigidContacts(ContactModel):
         *,
         link_forces: jtp.MatrixLike | None = None,
         joint_force_references: jtp.VectorLike | None = None,
+        contact_mode: str = "enabled",
+        precision_policy=None,
     ) -> tuple[jtp.Matrix, dict[str, jtp.PyTree]]:
         """
         Compute the contact forces.
@@ -244,13 +249,6 @@ class RigidContacts(ContactModel):
         Returns:
             A tuple containing as first element the computed contact forces.
         """
-
-        # Get the indices of the enabled collidable points.
-        indices_of_enabled_collidable_points = (
-            model.kin_dyn_parameters.contact_parameters.indices_of_enabled_collidable_points
-        )
-
-        n_collidable_points = len(indices_of_enabled_collidable_points)
 
         link_forces = jnp.atleast_2d(
             jnp.array(link_forces, dtype=float).squeeze()
@@ -274,10 +272,14 @@ class RigidContacts(ContactModel):
         )
 
         # Compute the position and linear velocities (mixed representation) of
-        # all enabled collidable points belonging to the robot.
+        # all collidable points belonging to the robot according to the selected layout.
         position, velocity = js.contact.collidable_point_kinematics(
-            model=model, data=data
+            model=model, data=data, contact_mode=contact_mode
         )
+        enabled_mask = js.contact.collidable_point_enabled_mask(
+            model=model, contact_mode=contact_mode
+        )
+        n_collidable_points = position.shape[0]
 
         # Compute the penetration depth and velocity of the collidable points.
         # Note that this function considers the penetration in the normal direction.
@@ -285,7 +287,7 @@ class RigidContacts(ContactModel):
             position, velocity, model.terrain
         )
 
-        W_H_C = js.contact.transforms(model=model, data=data)
+        W_H_C = js.contact.transforms(model=model, data=data, contact_mode=contact_mode)
 
         with (
             references.switch_velocity_representation(VelRepr.Mixed),
@@ -296,8 +298,12 @@ class RigidContacts(ContactModel):
 
             M_inv = js.model.free_floating_mass_matrix_inverse(model=model, data=data)
 
-            J_WC = js.contact.jacobian(model=model, data=data)
-            J̇_WC = js.contact.jacobian_derivative(model=model, data=data)
+            J_WC = js.contact.jacobian(
+                model=model, data=data, contact_mode=contact_mode
+            )
+            J̇_WC = js.contact.jacobian_derivative(
+                model=model, data=data, contact_mode=contact_mode
+            )
 
             # Compute the generalized free acceleration.
             BW_ν̇_free = jnp.hstack(
@@ -320,7 +326,7 @@ class RigidContacts(ContactModel):
 
         # Compute stabilization term.
         baumgarte_term = _compute_baumgarte_stabilization_term(
-            inactive_collidable_points=(δ <= 0),
+            inactive_collidable_points=jnp.logical_or(δ <= 0, ~enabled_mask),
             δ=δ,
             δ_dot=δ_dot,
             n=n̂,
@@ -341,7 +347,8 @@ class RigidContacts(ContactModel):
 
         # Construct the inequality constraints.
         G = _compute_ineq_constraint_matrix(
-            inactive_collidable_points=(δ <= 0), mu=model.contact_params.mu
+            inactive_collidable_points=jnp.logical_or(δ <= 0, ~enabled_mask),
+            mu=model.contact_params.mu,
         )
         h_bounds = jnp.zeros(shape=(n_collidable_points * 6,))
 
@@ -363,6 +370,7 @@ class RigidContacts(ContactModel):
 
         # Reshape the optimized solution to be a matrix of 3D contact forces.
         CW_fl_C = solution.reshape(-1, 3)
+        CW_fl_C = jnp.where(enabled_mask[:, None], CW_fl_C, 0.0)
 
         # Convert the contact forces from mixed to inertial-fixed representation.
         W_f_C = jax.vmap(
@@ -378,10 +386,17 @@ class RigidContacts(ContactModel):
 
         return W_f_C, {}
 
-    @jax.jit
+    @functools.partial(
+        jax.jit, static_argnames=["contact_mode", "precision_policy"]
+    )
     @js.common.named_scope
     def update_velocity_after_impact(
-        self: type[Self], model: js.model.JaxSimModel, data: js.data.JaxSimModelData
+        self: type[Self],
+        model: js.model.JaxSimModel,
+        data: js.data.JaxSimModelData,
+        *,
+        contact_mode: str = "enabled",
+        precision_policy=None,
     ) -> js.data.JaxSimModelData:
         """
         Update the velocity after an impact.
@@ -394,14 +409,12 @@ class RigidContacts(ContactModel):
             The updated data of the considered model.
         """
 
-        # Extract the indices corresponding to the enabled collidable points.
-        indices_of_enabled_collidable_points = (
-            model.kin_dyn_parameters.contact_parameters.indices_of_enabled_collidable_points
+        enabled_mask = js.contact.collidable_point_enabled_mask(
+            model=model, contact_mode=contact_mode
         )
-
-        W_p_C = js.contact.collidable_point_positions(model, data)[
-            indices_of_enabled_collidable_points
-        ]
+        W_p_C = js.contact.collidable_point_positions(
+            model, data, contact_mode=contact_mode
+        )
 
         # Compute the penetration depth of the collidable points.
         δ, *_ = jax.vmap(
@@ -410,9 +423,7 @@ class RigidContacts(ContactModel):
         )(W_p_C, jnp.zeros_like(W_p_C), model.terrain)
 
         with data.switch_velocity_representation(VelRepr.Mixed):
-            J_WC = js.contact.jacobian(model, data)[
-                indices_of_enabled_collidable_points
-            ]
+            J_WC = js.contact.jacobian(model, data, contact_mode=contact_mode)
             M = js.model.free_floating_mass_matrix(model, data)
             BW_ν_pre_impact = data.generalized_velocity
 
@@ -420,7 +431,7 @@ class RigidContacts(ContactModel):
             # It may be discontinuous in case new contacts are made.
             BW_ν_post_impact = RigidContacts.compute_impact_velocity(
                 generalized_velocity=BW_ν_pre_impact,
-                inactive_collidable_points=(δ <= 0),
+                inactive_collidable_points=jnp.logical_or(δ <= 0, ~enabled_mask),
                 M=M,
                 J_WC=J_WC,
             )

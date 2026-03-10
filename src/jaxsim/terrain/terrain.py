@@ -59,7 +59,8 @@ class Terrain(abc.ABC):
             [(h_xm - h_xp) / (2 * self.delta), (h_ym - h_yp) / (2 * self.delta), 1.0]
         )
 
-        return n / jaxsim.math.safe_norm(n, axis=-1)
+        n_hat, _ = jaxsim.math.safe_normalize(n, axis=-1)
+        return n_hat
 
 
 @jax_dataclasses.pytree_dataclass

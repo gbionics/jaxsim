@@ -177,7 +177,10 @@ class SoftContacts(common.ContactModel):
         return {"tangential_deformation": old_contact_state["m_dot"]}
 
     def update_velocity_after_impact(
-        self: type[Self], model: js.model.JaxSimModel, data: js.data.JaxSimModelData
+        self: type[Self],
+        model: js.model.JaxSimModel,
+        data: js.data.JaxSimModelData,
+        **kwargs,
     ) -> js.data.JaxSimModelData:
         """
         Update the velocity after an impact.
@@ -292,10 +295,7 @@ class SoftContacts(common.ContactModel):
 
         # Compute the direction of the tangential force.
         # To prevent dividing by zero, we use a switch statement.
-        norm = jaxsim.math.safe_norm(f_tangential)
-        f_tangential_direction = f_tangential / (
-            norm + jnp.finfo(float).eps * (norm == 0)
-        )
+        f_tangential_direction, norm = jaxsim.math.safe_normalize(f_tangential)
 
         # Project the tangential force to the friction cone if slipping.
         f_tangential = jnp.where(
@@ -388,10 +388,71 @@ class SoftContacts(common.ContactModel):
         return W_f, ṁ
 
     @staticmethod
-    @jax.jit
+    @functools.partial(
+        jax.jit, static_argnames=["contact_mode", "precision_policy"]
+    )
+    def compute_contact_forces_from_kinematics(
+        model: js.model.JaxSimModel,
+        state: js.data.JaxSimModelState,
+        kinematics: js.data.JaxSimModelKinematicCache,
+        *,
+        contact_mode: str = "enabled",
+        precision_policy=None,
+    ) -> tuple[jtp.Matrix, dict[str, jtp.PyTree]]:
+        """
+        Compute soft-contact forces from minimal state and kinematic cache.
+        """
+
+        W_p_C, W_ṗ_C = jaxsim.rbda.collidable_points.collidable_points_pos_vel(
+            model=model,
+            link_transforms=kinematics.link_transforms,
+            link_velocities=kinematics.link_velocities,
+            contact_mode=contact_mode,
+        )
+        enabled_mask = js.contact.collidable_point_enabled_mask(
+            model=model, contact_mode=contact_mode
+        )
+        contact_indices = js.contact.collidable_point_indices(
+            model=model, contact_mode=contact_mode
+        )
+
+        full_m = (
+            state.contact_state["tangential_deformation"]
+            if "tangential_deformation" in state.contact_state
+            else jnp.zeros(
+                (len(model.kin_dyn_parameters.contact_parameters.body), 3), dtype=float
+            )
+        )
+        m = full_m[contact_indices]
+        ṁ = jnp.zeros_like(full_m)
+
+        W_f, ṁ_local = jax.vmap(
+            lambda p, v, m_local: SoftContacts.compute_contact_force(
+                position=p,
+                velocity=v,
+                tangential_deformation=m_local,
+                parameters=model.contact_params,
+                terrain=model.terrain,
+            )
+        )(W_p_C, W_ṗ_C, m)
+
+        W_f = jnp.where(enabled_mask[:, None], W_f, 0.0)
+        ṁ = ṁ.at[contact_indices].set(
+            jnp.where(enabled_mask[:, None], ṁ_local, 0.0)
+        )
+
+        return W_f, {"m_dot": ṁ}
+
+    @staticmethod
+    @functools.partial(
+        jax.jit, static_argnames=["contact_mode", "precision_policy"]
+    )
     def compute_contact_forces(
         model: js.model.JaxSimModel,
         data: js.data.JaxSimModelData,
+        *,
+        contact_mode: str = "enabled",
+        precision_policy=None,
     ) -> tuple[jtp.Matrix, dict[str, jtp.PyTree]]:
         """
         Compute the contact forces.
@@ -405,40 +466,47 @@ class SoftContacts(common.ContactModel):
             second element a dictionary with derivative of the material deformation.
         """
 
-        # Get the indices of the enabled collidable points.
-        indices_of_enabled_collidable_points = (
-            model.kin_dyn_parameters.contact_parameters.indices_of_enabled_collidable_points
-        )
-
         # Compute the position and linear velocities (mixed representation) of
-        # all the collidable points belonging to the robot and extract the ones
-        # for the enabled collidable points.
-        W_p_C, W_ṗ_C = js.contact.collidable_point_kinematics(model=model, data=data)
+        # the collidable points belonging to the robot according to the selected layout.
+        W_p_C, W_ṗ_C = js.contact.collidable_point_kinematics(
+            model=model,
+            data=data,
+            contact_mode=contact_mode,
+        )
+        enabled_mask = js.contact.collidable_point_enabled_mask(
+            model=model, contact_mode=contact_mode
+        )
+        contact_indices = js.contact.collidable_point_indices(
+            model=model, contact_mode=contact_mode
+        )
 
         # Extract the material deformation corresponding to the collidable points.
-        m = (
+        full_m = (
             data.contact_state["tangential_deformation"]
             if "tangential_deformation" in data.contact_state
-            else jnp.zeros_like(W_p_C)
+            else jnp.zeros(
+                (len(model.kin_dyn_parameters.contact_parameters.body), 3), dtype=float
+            )
         )
-
-        m_enabled = m[indices_of_enabled_collidable_points]
+        m = full_m[contact_indices]
 
         # Initialize the tangential deformation rate array for every collidable point.
-        ṁ = jnp.zeros_like(m)
+        ṁ = jnp.zeros_like(full_m)
 
-        # Compute the contact forces only for the enabled collidable points.
-        # Since we treat them as independent, we can vmap the computation.
-        W_f, ṁ_enabled = jax.vmap(
-            lambda p, v, m: SoftContacts.compute_contact_force(
+        # Compute the contact forces point-wise.
+        W_f, ṁ_local = jax.vmap(
+            lambda p, v, m_local: SoftContacts.compute_contact_force(
                 position=p,
                 velocity=v,
-                tangential_deformation=m,
+                tangential_deformation=m_local,
                 parameters=model.contact_params,
                 terrain=model.terrain,
             )
-        )(W_p_C, W_ṗ_C, m_enabled)
+        )(W_p_C, W_ṗ_C, m)
 
-        ṁ = ṁ.at[indices_of_enabled_collidable_points].set(ṁ_enabled)
+        W_f = jnp.where(enabled_mask[:, None], W_f, 0.0)
+        ṁ = ṁ.at[contact_indices].set(
+            jnp.where(enabled_mask[:, None], ṁ_local, 0.0)
+        )
 
         return W_f, {"m_dot": ṁ}
