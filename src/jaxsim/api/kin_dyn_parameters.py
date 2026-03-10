@@ -1014,7 +1014,8 @@ class HwLinkMetadata(JaxsimDataclass):
         tet_coms = (A + B + C) / 4.0
         com_position = jnp.where(
             is_valid_volume,
-            jnp.sum(tet_coms * tetrahedron_volumes[:, None], axis=0) / safe_total_volume,
+            jnp.sum(tet_coms * tetrahedron_volumes[:, None], axis=0)
+            / safe_total_volume,
             jnp.zeros(3, dtype=vertices.dtype),
         )
 
@@ -1035,7 +1036,9 @@ class HwLinkMetadata(JaxsimDataclass):
 
         # Convert covariance to inertia tensor
         I_com = jnp.trace(Σ_com) * jnp.eye(3, dtype=vertices.dtype) - Σ_com
-        I_com = jnp.where(is_valid_volume, I_com, jnp.zeros((3, 3), dtype=vertices.dtype))
+        I_com = jnp.where(
+            is_valid_volume, I_com, jnp.zeros((3, 3), dtype=vertices.dtype)
+        )
 
         return mass, com_position, I_com
 
@@ -1108,7 +1111,9 @@ class HwLinkMetadata(JaxsimDataclass):
             def supported_case(idx):
                 return jax.lax.switch(idx, (box, cylinder, sphere), dims, density)
 
-            return jax.lax.cond(shape_idx < 0, unsupported_case, supported_case, shape_idx)
+            return jax.lax.cond(
+                shape_idx < 0, unsupported_case, supported_case, shape_idx
+            )
 
         # For models with mesh data, we need to handle Static heterogeneous mesh arrays
         has_mesh_data = (

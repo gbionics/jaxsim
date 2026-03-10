@@ -11,6 +11,5 @@ from .utils import safe_norm
 
 from .joint_model import JointModel, supported_joint_motion  # isort:skip
 
-
 # Define the default standard gravity constant.
 STANDARD_GRAVITY = 9.81
