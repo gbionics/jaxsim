@@ -762,8 +762,8 @@ class JaxSimModel(JaxsimDataclass):
             dims = np.array(hw_metadata.geometry[link_index], dtype=float)
             elements_to_update = collect_link_elements(links_dict[link_name])
 
-            def find_reference_geometry(attr: str):
-                for element in elements_to_update:
+            def find_reference_geometry(attr: str, elements: list = elements_to_update):
+                for element in elements:
                     if (
                         element is None
                         or not hasattr(element, "geometry")
@@ -791,7 +791,9 @@ class JaxSimModel(JaxsimDataclass):
                     )
             elif shape == LinkParametrizableShape.Sphere:
                 ref_sphere = find_reference_geometry("sphere")
-                base_radius = float(ref_sphere.radius) if ref_sphere is not None else 1.0
+                base_radius = (
+                    float(ref_sphere.radius) if ref_sphere is not None else 1.0
+                )
                 s = float(dims[0]) / base_radius if abs(base_radius) > 1e-12 else 1.0
                 scale_vector = np.array([s, s, s], dtype=float)
             elif shape == LinkParametrizableShape.Cylinder:
@@ -2781,10 +2783,9 @@ def update_hw_parameters(
         scaling_density,
     ):
         """Apply scaling to a single link's numerical data."""
+
         def scale_supported(_):
-            shape_indices_map = jnp.array(
-                [[0, 1, 2], [0, 0, 1], [0, 0, 0], [0, 1, 2]]
-            )
+            shape_indices_map = jnp.array([[0, 1, 2], [0, 0, 1], [0, 0, 0], [0, 1, 2]])
             per_link_indices = shape_indices_map[link_shape]
             scale_vector = scaling_dims[per_link_indices]
 
