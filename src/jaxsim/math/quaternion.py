@@ -4,6 +4,7 @@ import jaxlie
 
 import jaxsim.typing as jtp
 
+from .safe import normalize_quaternion
 from .utils import safe_norm
 
 
@@ -49,7 +50,7 @@ class Quaternion:
         Returns:
             The Direction cosine matrix (DCM).
         """
-        return jaxlie.SO3(wxyz=quaternion).as_matrix()
+        return jaxlie.SO3(wxyz=normalize_quaternion(quaternion)).as_matrix()
 
     @staticmethod
     def from_dcm(dcm: jtp.Matrix) -> jtp.Vector:
@@ -84,7 +85,7 @@ class Quaternion:
             The derivative of the quaternion.
         """
         ω = omega.squeeze()
-        quaternion = quaternion.squeeze()
+        quaternion = normalize_quaternion(quaternion).squeeze()
 
         def Q_body(q: jtp.Vector) -> jtp.Matrix:
             qw, qx, qy, qz = q
@@ -154,7 +155,7 @@ class Quaternion:
         """
 
         ω_AB = jnp.array(omega).squeeze().astype(float)
-        A_Q_B = jnp.array(quaternion).squeeze().astype(float)
+        A_Q_B = normalize_quaternion(quaternion).squeeze().astype(float)
 
         # Build the initial SO(3) quaternion.
         W_Q_B_t0 = jaxlie.SO3(wxyz=A_Q_B)
@@ -166,4 +167,4 @@ class Quaternion:
             on_false=(jaxlie.SO3.exp(tangent=dt * ω_AB) @ W_Q_B_t0).wxyz,
         )
 
-        return W_Q_B_tf
+        return normalize_quaternion(W_Q_B_tf)

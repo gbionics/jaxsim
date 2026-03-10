@@ -117,5 +117,5 @@ del _get_default_logging_level
 del _is_editable
 
 from . import terrain  # isort:skip
-from . import api, logging, math, rbda
+from . import api, config, logging, math, rbda
 from .api.common import VelRepr
