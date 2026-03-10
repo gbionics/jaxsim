@@ -71,6 +71,7 @@ Features
 
   guide/install
   guide/configuration
+  guide/tpu_rollouts
 
   examples
 

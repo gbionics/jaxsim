@@ -11,6 +11,7 @@ Functional API
     contact
     kin_dyn_parameters
     integrators
+    rollout
     joint
     link
     frame
@@ -85,6 +86,11 @@ Integration
 ~~~~~~~~~~~
 
 .. automodule:: jaxsim.api.integrators
+    :members:
+    :no-index:
+
+
+.. automodule:: jaxsim.api.rollout
     :members:
     :no-index:
 
