@@ -20,7 +20,7 @@ def _jnp_options() -> None:
 
     # Notify the user if unsupported 64-bit precision was enforced on TPU.
     if (is_tpu or is_metal) and use_x64:
-        msg = f"64-bit precision is not allowed on {jax.devices()[0].platform.upper}. Enforcing 32bit precision."
+        msg = f"64-bit precision is not allowed on {jax.devices()[0].platform.upper()}. Enforcing 32bit precision."
         logging.warning(msg)
         use_x64 = False
 
@@ -36,9 +36,7 @@ def _jnp_options() -> None:
 
     # Warn about experimental usage of 32-bit precision.
     else:
-        logging.warning(
-            "Using 32-bit precision in JaxSim is still experimental, please avoid to use variable step integrators."
-        )
+        logging.warning("Using 32-bit precision in JaxSim is still experimental.")
 
 
 def _np_options() -> None:
