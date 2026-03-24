@@ -58,9 +58,7 @@ def semi_implicit_euler_integration(
         W_p_B = data.base_position + dt * W_ṗ_B
         W_Q_B = data.base_orientation + dt * W_Q̇_B
 
-        base_quaternion_norm = jaxsim.math.safe_norm(W_Q_B, axis=-1)
-
-        W_Q_B = W_Q_B / jnp.where(base_quaternion_norm == 0, 1.0, base_quaternion_norm)
+        W_Q_B = jaxsim.math.normalize_quaternion(W_Q_B)
 
         s = data.joint_positions + dt * ṡ
 
@@ -111,10 +109,7 @@ def rk4_integration(
                 joint_torques=joint_torques,
             )
 
-    base_quaternion_norm = jaxsim.math.safe_norm(data._base_quaternion, axis=-1)
-    base_quaternion = data._base_quaternion / jnp.where(
-        base_quaternion_norm == 0, 1.0, base_quaternion_norm
-    )
+    base_quaternion = jaxsim.math.normalize_quaternion(data._base_quaternion)
 
     x_t0 = dict(
         base_position=data._base_position,
@@ -218,10 +213,7 @@ def rk4fast_integration(
             contact_state=data_ti.contact_state,
         )
 
-    base_quaternion_norm = jaxsim.math.safe_norm(data._base_quaternion, axis=-1)
-    base_quaternion = data._base_quaternion / jnp.where(
-        base_quaternion_norm == 0, 1.0, base_quaternion_norm
-    )
+    base_quaternion = jaxsim.math.normalize_quaternion(data._base_quaternion)
 
     x_t0 = dict(
         base_position=data._base_position,

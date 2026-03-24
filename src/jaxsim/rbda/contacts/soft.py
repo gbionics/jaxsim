@@ -291,11 +291,7 @@ class SoftContacts(common.ContactModel):
         )
 
         # Compute the direction of the tangential force.
-        # To prevent dividing by zero, we use a switch statement.
-        norm = jaxsim.math.safe_norm(f_tangential)
-        f_tangential_direction = f_tangential / (
-            norm + jnp.finfo(float).eps * (norm == 0)
-        )
+        f_tangential_direction, norm = jaxsim.math.safe_normalize(f_tangential)
 
         # Project the tangential force to the friction cone if slipping.
         f_tangential = jnp.where(

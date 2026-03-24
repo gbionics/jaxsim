@@ -281,9 +281,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
         # we introduce a Baumgarte stabilization to let the quaternion converge to
         # a unit quaternion. In this case, it is not guaranteed that the quaternion
         # stored in the state is a unit quaternion.
-        norm = jaxsim.math.safe_norm(W_Q_B, axis=-1, keepdims=True)
-        W_Q_B = W_Q_B / (norm + jnp.finfo(float).eps * (norm == 0))
-        return W_Q_B
+        return jaxsim.math.normalize_quaternion(W_Q_B)
 
     @property
     def base_velocity(self) -> jtp.Vector:
@@ -370,10 +368,9 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
             The updated `JaxSimModelData` object.
         """
 
-        W_Q_B = jnp.array(base_quaternion, dtype=float)
-
-        norm = jaxsim.math.safe_norm(W_Q_B, axis=-1)
-        W_Q_B = W_Q_B / (norm + jnp.finfo(float).eps * (norm == 0))
+        W_Q_B = jaxsim.math.normalize_quaternion(
+            jnp.array(base_quaternion, dtype=float)
+        )
 
         return self.replace(model=model, base_quaternion=W_Q_B)
 
@@ -432,12 +429,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
             contact_state = self.contact_state
 
         # Normalize the quaternion to avoid numerical issues.
-        base_quaternion_norm = jaxsim.math.safe_norm(
-            base_quaternion, axis=-1, keepdims=True
-        )
-        base_quaternion = base_quaternion / jnp.where(
-            base_quaternion_norm == 0, 1.0, base_quaternion_norm
-        )
+        base_quaternion = jaxsim.math.normalize_quaternion(base_quaternion)
 
         joint_positions = jnp.atleast_2d(joint_positions.squeeze()).astype(float)
         joint_velocities = jnp.atleast_2d(joint_velocities.squeeze()).astype(float)

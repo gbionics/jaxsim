@@ -3,6 +3,7 @@ import jaxlie
 
 import jaxsim.typing as jtp
 
+from .safe import safe_normalize
 from .skew import Skew
 from .utils import safe_norm
 
@@ -75,8 +76,7 @@ class Rotation:
 
         c1 = 2 * jnp.sin(theta / 2.0) ** 2
 
-        safe_theta = jnp.where(theta == 0, 1.0, theta)
-        u = vector / safe_theta
+        u, _ = safe_normalize(vector)
         u = jnp.vstack(u.squeeze())
 
         R = c * jnp.eye(3) - s * Skew.wedge(u) + c1 * u @ u.T
