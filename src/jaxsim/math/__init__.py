@@ -1,8 +1,10 @@
 from .adjoint import Adjoint
 from .cross import Cross
 from .inertia import Inertia
+from .linalg import safe_inv, safe_lstsq, spd_solve, standard_solve
 from .quaternion import Quaternion
 from .rotation import Rotation
+from .safe import normalize_quaternion, safe_divide, safe_normalize
 from .skew import Skew
 from .transform import Transform
 from .utils import safe_norm
