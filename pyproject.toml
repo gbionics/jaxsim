@@ -197,7 +197,7 @@ ignore = [
 # ==================
 
 [tool.pixi.workspace]
-channels = ["conda-forge"]
+channels = ["conda-forge", "https://prefix.dev/gbionics-experimental"]
 platforms = ["linux-64", "linux-aarch64", "osx-arm64", "osx-64"]
 requires-pixi = ">=0.39.0"
 
@@ -206,6 +206,7 @@ requires-pixi = ">=0.39.0"
 # Then, multiple environments can be created from these groups.
 default = { features = ["test", "examples"] }
 gpu = { features = ["test", "examples", "gpu"] }
+tpu = { features = ["test", "examples", "tpu"] }
 
 # ---------------
 # feature.default
@@ -238,6 +239,7 @@ scipy = "*"
 # Additional dependencies.
 #
 pip = "*"
+gb-gene-models = ">=0.1.1,<0.2"
 
 # Dependencies from PyPI.
 [tool.pixi.pypi-dependencies]
@@ -294,3 +296,9 @@ jaxlib = { version = "*", build = "*cuda*" }
 
 [tool.pixi.feature.gpu.tasks]
 test-gpu = { cmd = "pytest --gpu-only", depends-on = ["pipcheck"] }
+
+# -----------
+# feature.tpu
+# -----------
+[tool.pixi.feature.tpu.pypi-dependencies]
+jax = { extras = ["tpu"] }
