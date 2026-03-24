@@ -3,6 +3,7 @@ import jax.numpy as jnp
 import jaxlie
 
 import jaxsim.api as js
+import jaxsim.math
 import jaxsim.typing as jtp
 
 from . import utils
@@ -157,7 +158,7 @@ def mass_inverse(
     S0 = jnp.eye(6, dtype=float)
     U0 = I_A[0] @ S0
     D0 = S0.T @ U0
-    D0_inv = jnp.linalg.inv(D0)
+    D0_inv = jaxsim.math.safe_inv(D0)
 
     # Base rows 0..5 in ν
     base_rows = slice(0, 6)

@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 
 import jaxsim.api as js
+import jaxsim.math
 import jaxsim.terrain
 import jaxsim.typing as jtp
 from jaxsim.math import STANDARD_GRAVITY
@@ -52,7 +53,10 @@ def compute_penetration_data(
     h = jnp.array([0, 0, terrain.height(x=px, y=py) - pz])
 
     # Compute the penetration depth normal to the terrain.
-    δ = jnp.maximum(0.0, jnp.dot(h, n̂))
+    # Use smooth_relu to eliminate the gradient discontinuity at the contact
+    # surface: the forward pass is exact max(0, ·), but the JVP uses a
+    # sigmoid-smoothed gradient over a configurable transition zone.
+    δ = jaxsim.math.smooth_relu(jnp.dot(h, n̂))
 
     # Compute the penetration normal velocity.
     δ_dot = -jnp.dot(W_ṗ_C, n̂)

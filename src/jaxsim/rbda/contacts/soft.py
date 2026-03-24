@@ -260,7 +260,7 @@ class SoftContacts(common.ContactModel):
         force_normal_mag = (K * δp) * δ + (D * δq) * δ̇
 
         # Depending on the magnitude of δ̇, the normal force could be negative.
-        force_normal_mag = jnp.maximum(0.0, force_normal_mag)
+        force_normal_mag = jaxsim.math.smooth_relu(force_normal_mag)
 
         # Compute the 3D linear force in C[W] frame.
         f_normal = force_normal_mag * n̂

@@ -11,6 +11,7 @@ import optax
 from optax.tree_utils import tree_get
 
 import jaxsim.api as js
+import jaxsim.math
 import jaxsim.typing as jtp
 from jaxsim.api.common import ModelDataWithVelocityRepresentation, VelRepr
 
@@ -628,9 +629,9 @@ class RelaxedRigidContacts(common.ContactModel):
 
             # Compute the regularization term.
             R = (
-                (2 * μ**2 * (1 - ξ) / (ξ + 1e-12))
+                jaxsim.math.safe_divide(2 * μ**2 * (1 - ξ), ξ, min_denominator=1e-6)
                 * (1 + μ**2)
-                @ jnp.linalg.inv(M_L[link_idx, :3, :3])
+                @ jaxsim.math.safe_inv(M_L[link_idx, :3, :3])
             )
 
             # Return the computed values, setting them to zero in case of no contact.
