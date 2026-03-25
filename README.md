@@ -313,14 +313,15 @@ Please read the [contributing guide](./CONTRIBUTING.md) to get started.
 
 ## Citing
 
-If you use JaxSim in your work, please cite our upcoming paper:
+If you use JaxSim in your work, please cite the following paper:
 
 ```bibtex
-@software{ferretti_accelerated_optimization_2025,
-  author       = {Filippo Luca Ferretti and Diego Ferigo and Carlotta Sartore and Alessandro Croci and Omar G. Younis and Silvio Traversaro and Daniele Pucci},
-  title        = {Hardware-Accelerated Morphology Optimization via Physically Consistent Differentiable Simulation},
-  year         = {2025},
-  url          = {https://github.com/ami-iit/jaxsim}
+@article{ferretti_contact_aware_2026,
+  author       = {Filippo Luca Ferretti and Diego Ferigo and Alessandro Croci and Carlotta Sartore and Omar G. Younis and Silvio Traversaro and Daniele Pucci},
+  title        = {Contact-Aware Morphology Optimization via Physically Consistent Differentiable Simulation},
+  journal      = {IEEE Robotics and Automation Letters},
+  year         = {2026},
+  doi          = {10.1109/LRA.2026.3678125}
 }
 ```
 
