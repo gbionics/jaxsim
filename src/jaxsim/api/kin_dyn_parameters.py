@@ -935,6 +935,10 @@ class HwLinkMetadata(JaxsimDataclass):
         L_H_vis: The homogeneous transformation matrix from the link frame to the visual frame.
         L_H_pre_mask: The mask indicating the link's child joint indices.
         L_H_pre: The homogeneous transforms for child joints.
+        mesh_moments: Precomputed volumetric moments for mesh shapes (n_links x 13).
+            Each row stores [V_ref, com_x, com_y, com_z, Σ_00..Σ_22] where V_ref is the
+            reference volume, com is the volumetric center of mass, and Σ is the
+            volumetric covariance matrix at the origin. Zero for non-mesh links.
         mesh_vertices: The original centered mesh vertices (Nx3) for mesh shapes, None otherwise.
         mesh_faces: The mesh triangle faces (Mx3 integer indices) for mesh shapes, None otherwise.
         mesh_offset: The original mesh centroid offset (3D vector) for mesh shapes, None otherwise.
@@ -948,6 +952,7 @@ class HwLinkMetadata(JaxsimDataclass):
     L_H_vis: jtp.Matrix
     L_H_pre_mask: jtp.Vector
     L_H_pre: jtp.Matrix
+    mesh_moments: jtp.Matrix
     mesh_vertices: Static[tuple[HashedNumpyArray | None, ...] | None]
     mesh_faces: Static[tuple[HashedNumpyArray | None, ...] | None]
     mesh_offset: Static[tuple[HashedNumpyArray | None, ...] | None]
@@ -964,6 +969,7 @@ class HwLinkMetadata(JaxsimDataclass):
             L_H_vis=jnp.array([], dtype=float),
             L_H_pre_mask=jnp.array([], dtype=bool),
             L_H_pre=jnp.array([], dtype=float),
+            mesh_moments=jnp.zeros((0, 13), dtype=float),
             mesh_vertices=None,
             mesh_faces=None,
             mesh_offset=None,
@@ -1043,6 +1049,96 @@ class HwLinkMetadata(JaxsimDataclass):
         return mass, com_position, I_com
 
     @staticmethod
+    def precompute_mesh_moments(vertices: np.ndarray, faces: np.ndarray) -> np.ndarray:
+        """
+        Precompute volumetric moments from reference mesh geometry.
+
+        Computes the reference volume, center of mass, and volumetric covariance
+        matrix at the origin using numpy. These 13 scalars are sufficient to
+        analytically reconstruct mass and inertia under any anisotropic scaling,
+        avoiding the need to embed full mesh arrays in JIT-compiled programs.
+
+        Args:
+            vertices: Mesh vertices (Nx3), should be centered.
+            faces: Triangle face indices (Mx3).
+
+        Returns:
+            A 13-element array: [V_ref, com_x, com_y, com_z, Σ_00..Σ_22].
+        """
+
+        triangles = vertices[faces.astype(int)]
+        A, B, C = triangles[:, 0], triangles[:, 1], triangles[:, 2]
+
+        volumes = np.sum(A * np.cross(B, C), axis=1) / 6.0
+
+        total_signed = np.sum(volumes)
+        sign = np.sign(total_signed) if abs(total_signed) > 1e-12 else 1.0
+        volumes = volumes * sign
+        V_ref = np.sum(volumes)
+
+        if abs(V_ref) < 1e-12:
+            return np.zeros(13, dtype=np.float64)
+
+        # Center of mass
+        com = np.sum(volumes[:, None] * (A + B + C) / 4.0, axis=0) / V_ref
+
+        # Volumetric covariance at origin (same formula as compute_mesh_inertia)
+        S = A + B + C
+        cov = (volumes[:, None, None] / 20.0) * (
+            A[:, :, None] * A[:, None, :]
+            + B[:, :, None] * B[:, None, :]
+            + C[:, :, None] * C[:, None, :]
+            + S[:, :, None] * S[:, None, :]
+        )
+        Sigma = np.sum(cov, axis=0)
+
+        return np.concatenate([[V_ref], com, Sigma.flatten()])
+
+    @staticmethod
+    def compute_mesh_inertia_from_moments(
+        moments: jtp.Vector, dims: jtp.Vector, density: jtp.Float
+    ) -> tuple[jtp.Float, jtp.Matrix]:
+        """
+        Compute mass and inertia tensor from precomputed volumetric moments.
+
+        Uses analytical scaling laws to derive physical properties under
+        anisotropic scaling without requiring the full mesh geometry.
+
+        Under scaling S = diag(sx, sy, sz):
+          - V' = det(S) * V_ref
+          - com' = S @ com_ref
+          - Σ_origin' = det(S) * S @ Σ_ref @ S
+
+        Args:
+            moments: Precomputed moments array of length 13.
+            dims: Current anisotropic scale factors [sx, sy, sz].
+            density: Current material density.
+
+        Returns:
+            A tuple of (mass, inertia_at_com).
+        """
+
+        V_ref = moments[0]
+        com_ref = moments[1:4]
+        Sigma_ref = moments[4:13].reshape(3, 3)
+
+        det_s = dims[0] * dims[1] * dims[2]
+        S = jnp.diag(dims)
+
+        mass = density * V_ref * det_s
+        com = dims * com_ref
+
+        Sigma_scaled = det_s * (S @ Sigma_ref @ S)
+        Sigma_com = density * Sigma_scaled - mass * jnp.outer(com, com)
+        I_com = jnp.trace(Sigma_com) * jnp.eye(3) - Sigma_com
+
+        is_valid = V_ref > 1e-12
+        mass = jnp.where(is_valid, mass, 0.0)
+        I_com = jnp.where(is_valid, I_com, jnp.zeros((3, 3)))
+
+        return mass, I_com
+
+    @staticmethod
     def compute_mass_and_inertia(
         hw_link_metadata: HwLinkMetadata,
     ) -> tuple[jtp.Float, jtp.Matrix]:
@@ -1063,7 +1159,7 @@ class HwLinkMetadata(JaxsimDataclass):
                 - inertia: The computed inertia tensor of the hardware link.
         """
 
-        def box(dims, density) -> tuple[jtp.Float, jtp.Matrix]:
+        def box(dims, density, _moments) -> tuple[jtp.Float, jtp.Matrix]:
             lx, ly, lz = dims
 
             mass = density * lx * ly * lz
@@ -1077,7 +1173,7 @@ class HwLinkMetadata(JaxsimDataclass):
             )
             return mass, inertia
 
-        def cylinder(dims, density) -> tuple[jtp.Float, jtp.Matrix]:
+        def cylinder(dims, density, _moments) -> tuple[jtp.Float, jtp.Matrix]:
             r, l, _ = dims
 
             mass = density * (jnp.pi * r**2 * l)
@@ -1092,7 +1188,7 @@ class HwLinkMetadata(JaxsimDataclass):
 
             return mass, inertia
 
-        def sphere(dims, density) -> tuple[jtp.Float, jtp.Matrix]:
+        def sphere(dims, density, _moments) -> tuple[jtp.Float, jtp.Matrix]:
             r = dims[0]
 
             mass = density * (4 / 3 * jnp.pi * r**3)
@@ -1101,7 +1197,12 @@ class HwLinkMetadata(JaxsimDataclass):
 
             return mass, inertia
 
-        def compute_mass_inertia_primitive(shape_idx, dims, density):
+        def mesh(dims, density, moments) -> tuple[jtp.Float, jtp.Matrix]:
+            return HwLinkMetadata.compute_mesh_inertia_from_moments(
+                moments, dims, density
+            )
+
+        def compute_mass_inertia(shape_idx, dims, density, moments):
             def unsupported_case(_):
                 return (
                     jnp.asarray(0.0, dtype=density.dtype),
@@ -1109,80 +1210,20 @@ class HwLinkMetadata(JaxsimDataclass):
                 )
 
             def supported_case(idx):
-                return jax.lax.switch(idx, (box, cylinder, sphere), dims, density)
+                return jax.lax.switch(
+                    idx, (box, cylinder, sphere, mesh), dims, density, moments
+                )
 
             return jax.lax.cond(
                 shape_idx < 0, unsupported_case, supported_case, shape_idx
             )
 
-        # For models with mesh data, we need to handle Static heterogeneous mesh arrays
-        has_mesh_data = (
-            hw_link_metadata.mesh_vertices is not None
-            and hw_link_metadata.mesh_faces is not None
+        masses, inertias = jax.vmap(compute_mass_inertia)(
+            hw_link_metadata.link_shape,
+            hw_link_metadata.geometry,
+            hw_link_metadata.density,
+            hw_link_metadata.mesh_moments,
         )
-
-        if has_mesh_data:
-            mesh_verts_tuple = hw_link_metadata.mesh_vertices
-            mesh_faces_tuple = hw_link_metadata.mesh_faces
-            n_links = len(mesh_verts_tuple)
-
-            # Build per-link compute functions that capture mesh data in closures
-            # This loop runs once at trace time to build the computation graph
-            compute_fns = []
-            for i in range(n_links):
-                if mesh_verts_tuple[i] is not None:
-                    # Capture this link's mesh data in the closure
-                    verts_data = jnp.array(mesh_verts_tuple[i].get())
-                    faces_data = jnp.array(mesh_faces_tuple[i].get())
-
-                    def make_fn(verts, faces):
-                        def link_fn(shape, dims, density):
-                            def mesh_branch():
-                                scaled_vertices = verts * dims
-                                mass_m, _, inertia_m = (
-                                    HwLinkMetadata.compute_mesh_inertia(
-                                        scaled_vertices, faces, density
-                                    )
-                                )
-                                return mass_m, inertia_m
-
-                            def primitive_branch():
-                                return compute_mass_inertia_primitive(
-                                    shape, dims, density
-                                )
-
-                            return jax.lax.cond(
-                                shape == LinkParametrizableShape.Mesh,
-                                mesh_branch,
-                                primitive_branch,
-                            )
-
-                        return link_fn
-
-                    compute_fns.append(make_fn(verts_data, faces_data))
-                else:
-                    # No mesh data for this link
-                    def link_fn(shape, dims, density):
-                        return compute_mass_inertia_primitive(shape, dims, density)
-
-                    compute_fns.append(link_fn)
-
-            def compute_single_link(link_idx, shape, dims, density):
-                return jax.lax.switch(link_idx, compute_fns, shape, dims, density)
-
-            masses, inertias = jax.vmap(compute_single_link)(
-                jnp.arange(n_links),
-                hw_link_metadata.link_shape,
-                hw_link_metadata.geometry,
-                hw_link_metadata.density,
-            )
-        else:
-            # No mesh data - pure primitives with simple vmap
-            masses, inertias = jax.vmap(compute_mass_inertia_primitive)(
-                hw_link_metadata.link_shape,
-                hw_link_metadata.geometry,
-                hw_link_metadata.density,
-            )
 
         return masses, inertias
 

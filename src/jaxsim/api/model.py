@@ -386,6 +386,7 @@ class JaxSimModel(JaxsimDataclass):
         L_H_vises = []
         L_H_pre_masks = []
         L_H_pre = []
+        mesh_moments_list = []
         mesh_vertices = []
         mesh_faces = []
         mesh_offsets = []
@@ -408,6 +409,7 @@ class JaxSimModel(JaxsimDataclass):
                 mesh_faces.append(None)
                 mesh_offsets.append(None)
                 mesh_uris.append(None)
+                mesh_moments_list.append(np.zeros(13))
                 continue
 
             rod_link = rod_links_dict.get(link_name)
@@ -464,6 +466,7 @@ class JaxSimModel(JaxsimDataclass):
                 mesh_faces.append(None)
                 mesh_offsets.append(None)
                 mesh_uris.append(None)
+                mesh_moments_list.append(np.zeros(13))
             elif isinstance(geometry, rod.Sphere):
                 r = geometry.radius
                 density = mass / (4 / 3 * jnp.pi * r**3)
@@ -473,6 +476,7 @@ class JaxSimModel(JaxsimDataclass):
                 mesh_faces.append(None)
                 mesh_offsets.append(None)
                 mesh_uris.append(None)
+                mesh_moments_list.append(np.zeros(13))
             elif isinstance(geometry, rod.Cylinder):
                 r, l = geometry.radius, geometry.length
                 density = mass / (jnp.pi * r**2 * l)
@@ -482,6 +486,7 @@ class JaxSimModel(JaxsimDataclass):
                 mesh_faces.append(None)
                 mesh_offsets.append(None)
                 mesh_uris.append(None)
+                mesh_moments_list.append(np.zeros(13))
             elif isinstance(geometry, rod.Mesh):
                 # Load and prepare mesh for parametric scaling
                 try:
@@ -506,6 +511,13 @@ class JaxSimModel(JaxsimDataclass):
                     mesh_offsets.append(mesh_data["offset"])
                     mesh_uris.append(mesh_data["uri"])
 
+                    # Precompute volumetric moments for JIT-friendly inertia computation
+                    mesh_moments_list.append(
+                        HwLinkMetadata.precompute_mesh_moments(
+                            mesh_data["vertices"], mesh_data["faces"]
+                        )
+                    )
+
                     logging.info(
                         f"Loaded mesh for link '{link_name}': "
                         f"{len(mesh_data['vertices'])} vertices, "
@@ -523,6 +535,7 @@ class JaxSimModel(JaxsimDataclass):
                     mesh_faces.append(None)
                     mesh_offsets.append(None)
                     mesh_uris.append(None)
+                    mesh_moments_list.append(np.zeros(13))
             else:
                 logging.debug(
                     f"Skipping link '{link_name}' for hardware parametrization due to unsupported geometry."
@@ -534,6 +547,7 @@ class JaxSimModel(JaxsimDataclass):
                 mesh_faces.append(None)
                 mesh_offsets.append(None)
                 mesh_uris.append(None)
+                mesh_moments_list.append(np.zeros(13))
 
             inertial_pose = (
                 rod_link.inertial.pose.transform() if rod_link else jnp.eye(4)
@@ -584,6 +598,7 @@ class JaxSimModel(JaxsimDataclass):
             L_H_vis=jnp.array(L_H_vises, dtype=float),
             L_H_pre_mask=jnp.array(L_H_pre_masks, dtype=bool),
             L_H_pre=L_H_pre_array,
+            mesh_moments=jnp.array(np.stack(mesh_moments_list), dtype=float),
             mesh_vertices=(
                 tuple(
                     wrappers.HashedNumpyArray(array=v) if v is not None else None
