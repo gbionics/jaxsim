@@ -1,0 +1,49 @@
+cff-version: 1.2.0
+title: JaxSim
+message: "If you use this software, please cite the paper."
+type: software
+authors:
+  - family-names: Ferretti
+    given-names: Filippo Luca
+    affiliation: "Generative Bionics"
+  - family-names: Ferigo
+    given-names: Diego
+    affiliation: "Robotics & AI Institute"
+  - family-names: Croci
+    given-names: Alessandro
+    affiliation: "NEURA Robotics"
+  - family-names: Sartore
+    given-names: Carlotta
+    affiliation: "Generative Bionics"
+  - family-names: Younis
+    given-names: Omar G.
+    affiliation: "Quebec AI Institute"
+  - family-names: Traversaro
+    given-names: Silvio
+    affiliation: "Generative Bionics"
+  - family-names: Pucci
+    given-names: Daniele
+    affiliation: "Generative Bionics"
+repository-code: "https://github.com/ami-iit/jaxsim"
+license: BSD-3-Clause
+preferred-citation:
+  type: article
+  title: "Contact-Aware Morphology Optimization via Physically Consistent Differentiable Simulation"
+  authors:
+    - family-names: Ferretti
+      given-names: Filippo Luca
+    - family-names: Ferigo
+      given-names: Diego
+    - family-names: Croci
+      given-names: Alessandro
+    - family-names: Sartore
+      given-names: Carlotta
+    - family-names: Younis
+      given-names: Omar G.
+    - family-names: Traversaro
+      given-names: Silvio
+    - family-names: Pucci
+      given-names: Daniele
+  journal: "IEEE Robotics and Automation Letters"
+  year: 2026
+  doi: "10.1109/LRA.2026.3678125"
