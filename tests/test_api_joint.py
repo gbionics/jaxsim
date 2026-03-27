@@ -20,7 +20,7 @@ def test_joint_index(
         assert js.joint.name_to_idx(model=model, joint_name=joint_name) == idx
         assert js.joint.idx_to_name(model=model, joint_index=idx) == joint_name
 
-    # See discussion in https://github.com/ami-iit/jaxsim/pull/280
+    # See discussion in https://github.com/gbionics/jaxsim/pull/280
     assert_array_equal(
         js.joint.names_to_idxs(model=model, joint_names=model.joint_names()),
         jnp.arange(model.number_of_joints()),

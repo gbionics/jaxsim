@@ -26,7 +26,7 @@ def test_link_index(
         assert js.link.name_to_idx(model=model, link_name=link_name) == idx
         assert js.link.idx_to_name(model=model, link_index=idx) == link_name
 
-    # See discussion in https://github.com/ami-iit/jaxsim/pull/280
+    # See discussion in https://github.com/gbionics/jaxsim/pull/280
     assert_array_equal(
         js.link.names_to_idxs(model=model, link_names=model.link_names()),
         jnp.arange(model.number_of_links()),

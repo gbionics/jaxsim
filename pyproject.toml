@@ -89,10 +89,10 @@ file = "README.md"
 content-type = "text/markdown"
 
 [project.urls]
-Changelog = "https://github.com/ami-iit/jaxsim/releases"
+Changelog = "https://github.com/gbionics/jaxsim/releases"
 Documentation = "https://jaxsim.readthedocs.io"
-Source = "https://github.com/ami-iit/jaxsim"
-Tracker = "https://github.com/ami-iit/jaxsim/issues"
+Source = "https://github.com/gbionics/jaxsim"
+Tracker = "https://github.com/gbionics/jaxsim/issues"
 
 # ===========
 # Build tools

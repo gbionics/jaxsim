@@ -13,7 +13,7 @@ from jaxsim.math.transform import Transform
 
 # Utility functions used for constraints computation. These functions duplicate part of the jaxsim.api.frame module for computational efficiency.
 # TODO: remove these functions when jaxsim.api.frame is optimized for batched computations.
-# See: https://github.com/ami-iit/jaxsim/issues/451
+# See: https://github.com/gbionics/jaxsim/issues/451
 
 
 def _compute_constraint_transforms_batched(

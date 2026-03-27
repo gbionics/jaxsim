@@ -24,7 +24,7 @@ authors:
   - family-names: Pucci
     given-names: Daniele
     affiliation: "Generative Bionics"
-repository-code: "https://github.com/ami-iit/jaxsim"
+repository-code: "https://github.com/gbionics/jaxsim"
 license: BSD-3-Clause
 preferred-citation:
   type: article

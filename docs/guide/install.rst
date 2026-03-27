@@ -30,7 +30,7 @@ You can install all by using ``pip install "jaxsim[all]"``.
     If you need GPU support, please follow the official `installation instruction`_ of JAX.
 
 .. _conda: https://anaconda.org/
-.. _pyproject.toml: https://github.com/ami-iit/jaxsim/blob/main/pyproject.toml
+.. _pyproject.toml: https://github.com/gbionics/jaxsim/blob/main/pyproject.toml
 .. _pypa/pip: https://github.com/pypa/pip/
 .. _virtual environment: https://docs.python.org/3.8/tutorial/venv.html
 .. _installation instruction: https://github.com/google/jax/#installation
