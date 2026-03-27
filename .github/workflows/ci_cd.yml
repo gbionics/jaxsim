@@ -148,7 +148,7 @@ jobs:
 
       - name: Publish to PyPI
         if: |
-          github.repository == 'ami-iit/jaxsim' &&
+          github.repository == 'gbionics/jaxsim' &&
           ((github.event_name == 'push' && github.ref == 'refs/heads/main') ||
            (github.event_name == 'release'))
         uses: pypa/gh-action-pypi-publish@release/v1

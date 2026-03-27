@@ -56,7 +56,7 @@ def test_com_properties(
 
     assert_allclose(v_avg_com_idt, v_avg_com_js)
 
-    # https://github.com/ami-iit/jaxsim/pull/117#discussion_r1535486123
+    # https://github.com/gbionics/jaxsim/pull/117#discussion_r1535486123
     if data.velocity_representation is not VelRepr.Body:
         vl_com_idt = kin_dyn.com_velocity()
         vl_com_js = js.com.com_linear_velocity(model=model, data=data)

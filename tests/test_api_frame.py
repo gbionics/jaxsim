@@ -32,7 +32,7 @@ def test_frame_index(jaxsim_models_types: js.model.JaxSimModel):
             < model.number_of_links()
         )
 
-    # See discussion in https://github.com/ami-iit/jaxsim/pull/280
+    # See discussion in https://github.com/gbionics/jaxsim/pull/280
     assert_array_equal(
         js.frame.names_to_idxs(model=model, frame_names=model.frame_names()),
         jnp.arange(n_l, n_l + n_f),

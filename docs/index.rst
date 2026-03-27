@@ -90,7 +90,7 @@ Features
 Examples
 --------
 
-Explore and learn how to use the library through practical demonstrations available in the `examples <https://github.com/ami-iit/jaxsim/tree/main/examples>`__ folder.
+Explore and learn how to use the library through practical demonstrations available in the `examples <https://github.com/gbionics/jaxsim/tree/main/examples>`__ folder.
 
 Credits
 -------
