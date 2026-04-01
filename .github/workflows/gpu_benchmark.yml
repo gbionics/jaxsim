@@ -62,7 +62,7 @@ jobs:
             PY_COLORS: "1"
 
       - name: Compare benchmark results with main branch
-        uses: benchmark-action/github-action-benchmark@v1.20.7
+        uses: benchmark-action/github-action-benchmark@v1.22.0
         with:
           tool: 'pytest'
           output-file-path: output.json
@@ -75,7 +75,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Store benchmark result for main branch
-        uses: benchmark-action/github-action-benchmark@v1.20.7
+        uses: benchmark-action/github-action-benchmark@v1.22.0
         if: ${{ github.ref_name == 'main' }}
         with:
           tool: 'pytest'
@@ -89,7 +89,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Publish Benchmark Results to GitHub Pages
-        uses: benchmark-action/github-action-benchmark@v1.20.7
+        uses: benchmark-action/github-action-benchmark@v1.22.0
         if: ${{ github.ref_name == 'main' }}
         with:
           tool: 'pytest'
