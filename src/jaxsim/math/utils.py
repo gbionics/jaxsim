@@ -25,7 +25,7 @@ def _make_safe_norm(axis, keepdims):
         (x,), (x_dot,) = primals, tangents
 
         # Check if the entire array is composed of zeros.
-        is_zero = jnp.all(x == 0.0)
+        is_zero = jnp.allclose(x, 0)
 
         # Replace zeros with an array of ones temporarily to avoid division by zero.
         # This ensures the computation of norm does not produce NaNs or Infs.

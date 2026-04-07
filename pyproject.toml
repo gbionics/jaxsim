@@ -187,7 +187,7 @@ ignore = [
 # Ignore `E402` (import violations) in all `__init__.py` files
 "**/{tests,docs,tools}/*" = ["E402"]
 "**/{tests,examples}/*" = ["B007", "D100", "D102", "D103"]
-"__init__.py" = ["F401"]
+"__init__.py" = ["F401", "RUF067"]
 "docs/conf.py" = ["F401"]
 "src/jaxsim/exceptions.py" = ["D401"]
 "src/jaxsim/logging.py" = ["D101", "D103"]
