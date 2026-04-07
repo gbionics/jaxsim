@@ -1666,7 +1666,9 @@ def free_floating_coriolis_matrix(
         L_J_WL_B = generalized_free_floating_jacobian(model=model, data=data)
 
         # Doubly-left free-floating Jacobian derivative.
-        L_J̇_WL_B = generalized_free_floating_jacobian_derivative(model=model, data=data)
+        L_J̇_WL_B = generalized_free_floating_jacobian_derivative(
+            model=model, data=data
+        )
 
     L_M_L = link_spatial_inertia_matrices(model=model)
 
