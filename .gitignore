@@ -139,7 +139,7 @@ dmypy.json
 # Pyre type checker
 .pyre/
 
-# setuptools_scm dynamic version
+# dynamic version
 src/jaxsim/_version.py
 
 # ruff

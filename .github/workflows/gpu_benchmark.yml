@@ -51,10 +51,6 @@ jobs:
           path: ./cache
           key: ${{ runner.os }}-benchmark
 
-      - name: Ensure version file is written
-        run: |
-            pixi run --frozen --environment gpu python -m setuptools_scm --force-write-version-file
-
       - name: Run benchmark and store result
         run: |
             pixi run --frozen --environment gpu benchmark --batch-size 128 --benchmark-json output.json

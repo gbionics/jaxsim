@@ -99,19 +99,21 @@ Tracker = "https://github.com/gbionics/jaxsim/issues"
 # ===========
 
 [build-system]
-build-backend = "setuptools.build_meta"
+build-backend = "hatchling.build"
 requires = [
-    "setuptools>=77",
-    "setuptools-scm[toml]>=8",
-    "wheel",
+    "hatchling",
+    "hatch-vcs",
 ]
 
-[tool.setuptools]
-package-dir = { "" = "src" }
+[tool.hatch.version]
+source = "vcs"
+raw-options = { local_scheme = "dirty-tag" }
 
-[tool.setuptools_scm]
-local_scheme = "dirty-tag"
-version_file = "src/jaxsim/_version.py"
+[tool.hatch.build.targets.wheel]
+packages = ["src/jaxsim"]
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/jaxsim/_version.py"
 
 # =================
 # Style and testing
@@ -238,6 +240,8 @@ scipy = "*"
 # Additional dependencies.
 #
 pip = "*"
+hatchling = "*"
+hatch-vcs = "*"
 
 # Dependencies from PyPI.
 [tool.pixi.pypi-dependencies]
@@ -267,7 +271,6 @@ pytest-benchmark = "*"
 pytest-icdiff = "*"
 pytest-xdist = "*"
 robot_descriptions = ">=1.16.0"
-setuptools_scm = ">=8.3.1,<9"
 
 # ----------------
 # feature.examples
