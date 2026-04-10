@@ -9,7 +9,6 @@ authors = [
 ]
 maintainers = [
     { name = "Filippo Luca Ferretti", email = "filippo.ferretti@iit.it" },
-    { name = "Alessandro Croci", email = "alessandro.croci@iit.it" },
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
@@ -60,11 +59,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-style = [
-    "black[jupyter]",
-    "isort",
-    "pre-commit",
-]
 testing = [
     "chex >= 0.1.91",
     "idyntree >= 12.2.1",
@@ -82,7 +76,7 @@ viz = [
     "scipy >= 1.14.0",
 ]
 all = [
-    "jaxsim[style,testing,viz]",
+    "jaxsim[testing,viz]",
 ]
 
 [project.readme]
@@ -258,7 +252,6 @@ no-build-isolation = ["jaxsim"]
 [tool.pixi.feature.test.tasks]
 pipcheck = "pip check"
 benchmark = { cmd = "pytest --benchmark-only --benchmark-warmup=ON", depends-on = ["pipcheck"] }
-lint = { cmd = "pre-commit run --all-files --hook-stage=manual" }
 test = { cmd = "pytest", depends-on = ["pipcheck"] }
 
 [tool.pixi.feature.test.dependencies]
