@@ -20,7 +20,7 @@ def forward_kinematics_model_parallel(
     base_angular_velocity_inertial: jtp.VectorLike,
     joint_velocities: jtp.VectorLike,
     joint_transforms: jtp.MatrixLike,
-) -> jtp.Array:
+) -> tuple[jtp.Array, jtp.Array]:
     """
     Compute forward kinematics using pointer jumping on the kinematic tree.
 
@@ -29,7 +29,7 @@ def forward_kinematics_model_parallel(
     steps, where D is the tree depth.
 
     The interface and semantics are identical to
-    :func:`forward_kinematics_model`.
+    :func:`forward_kinematics_model`, but parallelized via pointer jumping.
     """
 
     _, _, _, W_v_WB, ṡ, _, _, _, _, _ = utils.process_inputs(

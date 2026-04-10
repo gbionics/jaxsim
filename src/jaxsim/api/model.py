@@ -1617,10 +1617,6 @@ def forward_dynamics_aba(
 
     aba_fn = jaxsim.rbda.aba_parallel if parallel else jaxsim.rbda.aba
 
-    extra_kwargs = {}
-    if parallel:
-        extra_kwargs["joint_transforms"] = data._joint_transforms
-
     W_v̇_WB, s̈ = aba_fn(
         model=model,
         base_position=W_p_B,
@@ -1629,11 +1625,13 @@ def forward_dynamics_aba(
         base_linear_velocity=W_v_WB[0:3],
         base_angular_velocity=W_v_WB[3:6],
         joint_velocities=ṡ,
-        joint_transforms=data._joint_transforms,
+        joint_transforms=model.kin_dyn_parameters.joint_transforms(
+            joint_positions=s,
+            base_transform=data.base_transform,
+        ),
         joint_forces=τ,
         link_forces=W_f_L,
         standard_gravity=model.gravity,
-        **extra_kwargs,
     )
 
     # =============
@@ -1813,9 +1811,12 @@ def forward_kinematics(
         else jaxsim.rbda.forward_kinematics_model
     )
 
-    extra_kwargs = {}
-    if parallel:
-        extra_kwargs["joint_transforms"] = data._joint_transforms
+    # Recompute joint transforms from the model to ensure gradients
+    # flow through model parameters.
+    joint_transforms = model.kin_dyn_parameters.joint_transforms(
+        joint_positions=data.joint_positions,
+        base_transform=data.base_transform,
+    )
 
     W_H_LL, _ = fk_fn(
         model=model,
@@ -1825,7 +1826,7 @@ def forward_kinematics(
         joint_velocities=data.joint_velocities,
         base_linear_velocity_inertial=data._base_linear_velocity,
         base_angular_velocity_inertial=data._base_angular_velocity,
-        **extra_kwargs,
+        joint_transforms=joint_transforms,
     )
 
     return W_H_LL

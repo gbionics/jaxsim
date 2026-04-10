@@ -88,8 +88,6 @@ def aba(
     B_X_W = W_H_B.inverse().adjoint()
 
     # Extract the parent-to-child adjoints of the joints.
-    # These transforms define the relative kinematics of the entire model, including
-    # the base transform for both floating-base and fixed-base models.
     i_X_λi = jnp.asarray(joint_transforms)
 
     # Extract the joint motion subspaces.

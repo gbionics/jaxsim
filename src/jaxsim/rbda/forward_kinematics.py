@@ -18,7 +18,7 @@ def forward_kinematics_model(
     base_angular_velocity_inertial: jtp.VectorLike,
     joint_velocities: jtp.VectorLike,
     joint_transforms: jtp.MatrixLike,
-) -> jtp.Array:
+) -> tuple[jtp.Array, jtp.Array]:
     """
     Compute the forward kinematics.
 
@@ -33,7 +33,7 @@ def forward_kinematics_model(
         joint_transforms: The parent-to-child transforms of the joints.
 
     Returns:
-        A 3D array containing the SE(3) transforms of all links belonging to the model.
+        A tuple containing the SE(3) transforms and the 6D velocities of all links.
     """
 
     _, _, _, W_v_WB, ṡ, _, _, _, _, _ = utils.process_inputs(
@@ -51,8 +51,6 @@ def forward_kinematics_model(
     λ = model.kin_dyn_parameters.parent_array
 
     # Extract the parent-to-child adjoints of the joints.
-    # These transforms define the relative kinematics of the entire model, including
-    # the base transform for both floating-base and fixed-base models.
     i_X_λi = jnp.asarray(joint_transforms)
 
     # Allocate the buffer of transforms world -> link and initialize the base pose.

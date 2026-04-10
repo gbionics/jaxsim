@@ -32,10 +32,11 @@ def aba_parallel(
     Pass 2 uses level-parallel processing in O(D) steps because the backward
     inertia accumulation is not associative.
 
-    The interface and semantics are identical to :func:`aba`.
+    The interface and semantics are identical to :func:`aba`,
+    but passes 1 and 3 are parallelized via pointer jumping.
     """
 
-    W_p_B, W_Q_B, s, W_v_WB, ṡ, _, _, τ, W_f, W_g = utils.process_inputs(
+    W_p_B, W_Q_B, _, W_v_WB, ṡ, _, _, τ, W_f, W_g = utils.process_inputs(
         model=model,
         base_position=base_position,
         base_quaternion=base_quaternion,
@@ -64,7 +65,6 @@ def aba_parallel(
     level_nodes = jnp.asarray(model.kin_dyn_parameters.level_nodes)
     level_mask = jnp.asarray(model.kin_dyn_parameters.level_mask)
     n_levels = level_nodes.shape[0]
-    max_width = level_nodes.shape[1]
 
     # Compute the base transform.
     W_H_B = jaxlie.SE3.from_rotation_and_translation(
@@ -159,7 +159,6 @@ def aba_parallel(
 
     # Compute c, MA, pA for all nodes in parallel.
     def _init_node(node_i):
-        ii = node_i - 1
         vJ_i = S[node_i] * ṡ_padded[node_i]
         c_i = Cross.vx(v[node_i]) @ vJ_i
         MA_i = M[node_i]
@@ -190,9 +189,9 @@ def aba_parallel(
 
     def _masked_scatter_add(arr, indices, values, m):
         """Add values[j] to arr[indices[j]] only where m[j] is True."""
-        for j in range(max_width):
-            arr = jnp.where(m[j], arr.at[indices[j]].add(values[j]), arr)
-        return arr
+        mask = jnp.reshape(m, m.shape + (1,) * (values.ndim - 1))
+        masked_values = jnp.where(mask, values, jnp.zeros_like(values))
+        return arr.at[indices].add(masked_values)
 
     def _pass2_level(carry, level_idx):
         U, d, u, MA, pA = carry
@@ -201,7 +200,8 @@ def aba_parallel(
         mask = level_mask[actual_level]
 
         def _process_node_pass2(node_i):
-            ii = node_i - 1
+            # Clamp index to avoid out-of-bounds for padded entries.
+            ii = jnp.maximum(node_i, 1) - 1
             parent = λ[node_i]
 
             U_i = MA[node_i] @ S[node_i]
