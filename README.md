@@ -129,14 +129,14 @@ If you are on Linux and you want to use a `cuda`-powered version of `jax`, remem
 
 ~~~toml
 [system-requirements]
-cuda = "12"
+cuda = "13"
 ~~~
 
 if you are using a `pixi.toml` file or
 
 ~~~toml
 [tool.pixi.system-requirements]
-cuda = "12"
+cuda = "13"
 ~~~
 
 if you are using a `pyproject.toml` file.
