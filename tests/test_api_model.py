@@ -575,3 +575,101 @@ def test_model_fd_id_consistency(
 
         assert_allclose(τ_id, references.joint_force_references(model=model))
         assert_allclose(fB_id, references.link_forces(model=model, data=data)[0])
+
+
+def test_aba_vs_aba_parallel(
+    jaxsim_models_all: js.model.JaxSimModel,
+    velocity_representation: VelRepr,
+    prng_key: jax.Array,
+):
+    """Verify that the level-parallel ABA produces identical results to
+    the sequential ABA, both at the low-level RBDA and at the high-level
+    model API."""
+
+    model = jaxsim_models_all
+
+    key, subkey = jax.random.split(prng_key, num=2)
+    data = js.data.random_model_data(
+        model=model, key=subkey, velocity_representation=velocity_representation
+    )
+
+    # Create random references.
+    _, subkey1, subkey2 = jax.random.split(key, num=3)
+    references = js.references.JaxSimModelReferences.build(
+        model=model,
+        joint_force_references=10 * jax.random.uniform(subkey1, shape=(model.dofs(),)),
+        link_forces=jax.random.uniform(subkey2, shape=(model.number_of_links(), 6)),
+        data=data,
+        velocity_representation=data.velocity_representation,
+    )
+
+    if not model.floating_base():
+        references = references.apply_link_forces(
+            forces=jnp.atleast_2d(jnp.zeros(6)),
+            model=model,
+            data=data,
+            link_names=(model.base_link(),),
+            additive=False,
+        )
+
+    # ==========================================
+    # Test 1: High-level API (forward_dynamics_aba)
+    # ==========================================
+
+    joint_forces = references.joint_force_references()
+    link_forces = references.link_forces(model=model, data=data)
+
+    v̇_WB_seq, s̈_seq = js.model.forward_dynamics_aba(
+        model=model,
+        data=data,
+        joint_forces=joint_forces,
+        link_forces=link_forces,
+        parallel=False,
+    )
+
+    v̇_WB_par, s̈_par = js.model.forward_dynamics_aba(
+        model=model,
+        data=data,
+        joint_forces=joint_forces,
+        link_forces=link_forces,
+        parallel=True,
+    )
+
+    assert_allclose(v̇_WB_seq, v̇_WB_par, atol=1e-9)
+    assert_allclose(s̈_seq, s̈_par, atol=1e-9)
+
+    # ==========================================
+    # Test 2: Low-level RBDA (aba vs aba_parallel)
+    # ==========================================
+
+    with data.switch_velocity_representation(VelRepr.Inertial):
+        W_p_B = data.base_position
+        W_Q_B = data.base_orientation
+        s = data.joint_positions
+        W_v_WB = data.base_velocity
+        ṡ = data.joint_velocities
+
+    W_f_L = references._link_forces
+    τ = references._joint_force_references
+
+    rbda_kwargs = dict(
+        model=model,
+        base_position=W_p_B,
+        base_quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
+        joint_positions=s,
+        base_linear_velocity=W_v_WB[0:3],
+        base_angular_velocity=W_v_WB[3:6],
+        joint_velocities=ṡ,
+        joint_forces=τ,
+        joint_transforms=data._joint_transforms,
+        link_forces=W_f_L,
+        standard_gravity=model.gravity,
+    )
+
+    import jaxsim.rbda
+
+    result_seq = jaxsim.rbda.aba(**rbda_kwargs)
+    result_par = jaxsim.rbda.aba_parallel(**rbda_kwargs)
+
+    assert_allclose(result_seq[0], result_par[0], atol=1e-9)
+    assert_allclose(result_seq[1], result_par[1], atol=1e-9)

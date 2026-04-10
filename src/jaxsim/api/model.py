@@ -1540,7 +1540,7 @@ def forward_dynamics(
     )
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=("parallel",))
 @js.common.named_scope
 def forward_dynamics_aba(
     model: JaxSimModel,
@@ -1548,6 +1548,7 @@ def forward_dynamics_aba(
     *,
     joint_forces: jtp.VectorLike | None = None,
     link_forces: jtp.MatrixLike | None = None,
+    parallel: bool = False,
 ) -> tuple[jtp.Vector, jtp.Vector]:
     """
     Compute the forward dynamics of the model with the ABA algorithm.
@@ -1560,6 +1561,10 @@ def forward_dynamics_aba(
         link_forces:
             The link 6D forces to consider as a matrix of shape `(nL, 6)`.
             The frame in which they are expressed must be `data.velocity_representation`.
+        parallel:
+            If ``True``, use the level-parallel ABA implementation that
+            processes independent tree branches simultaneously.
+            Beneficial on GPU or for wide/deep kinematic trees.
 
     Returns:
         A tuple containing the 6D acceleration in the active representation of the
@@ -1610,7 +1615,13 @@ def forward_dynamics_aba(
     # Compute forward dynamics
     # ========================
 
-    W_v̇_WB, s̈ = jaxsim.rbda.aba(
+    aba_fn = jaxsim.rbda.aba_parallel if parallel else jaxsim.rbda.aba
+
+    extra_kwargs = {}
+    if parallel:
+        extra_kwargs["joint_transforms"] = data._joint_transforms
+
+    W_v̇_WB, s̈ = aba_fn(
         model=model,
         base_position=W_p_B,
         base_quaternion=W_Q_B,
@@ -1622,6 +1633,7 @@ def forward_dynamics_aba(
         joint_forces=τ,
         link_forces=W_f_L,
         standard_gravity=model.gravity,
+        **extra_kwargs,
     )
 
     # =============

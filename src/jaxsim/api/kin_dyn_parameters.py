@@ -44,6 +44,13 @@ class KinDynParameters(JaxsimDataclass):
     _support_body_array_bool: Static[HashedNumpyArray]
     _motion_subspaces: Static[HashedNumpyArray]
 
+    # Tree level structure for parallel algorithms.
+    # level_nodes: (n_levels, max_width) array of link indices at each depth level,
+    #   padded with 0 for levels with fewer nodes than max_width.
+    # level_mask: (n_levels, max_width) boolean mask, True for real nodes.
+    _level_nodes: Static[HashedNumpyArray]
+    _level_mask: Static[HashedNumpyArray]
+
     # Links
     link_parameters: LinkParameters
 
@@ -83,6 +90,70 @@ class KinDynParameters(JaxsimDataclass):
         Return the boolean support parent array :math:`\kappa_{b}(i)` of the model.
         """
         return self._support_body_array_bool.get()
+
+    @property
+    def level_nodes(self) -> jtp.Matrix:
+        r"""
+        Return the tree level nodes array of shape ``(n_levels, max_width)``.
+        Each row contains the link indices at the corresponding depth level,
+        padded with 0 for levels with fewer nodes than ``max_width``.
+        """
+        return self._level_nodes.get()
+
+    @property
+    def level_mask(self) -> jtp.Matrix:
+        r"""
+        Return the tree level mask of shape ``(n_levels, max_width)``.
+        Each entry is ``True`` for real nodes and ``False`` for padding.
+        """
+        return self._level_mask.get()
+
+    @staticmethod
+    def _compute_tree_levels(
+        parent_array: np.ndarray,
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Compute the tree level decomposition from a parent array.
+
+        Args:
+            parent_array: Array of shape ``(n,)`` where ``parent_array[i]``
+                is the parent of link ``i``. ``parent_array[0] == -1`` for the root.
+
+        Returns:
+            A tuple ``(level_nodes, level_mask)`` where:
+            - ``level_nodes`` has shape ``(n_levels, max_width)`` with link
+              indices at each depth level (padded with 0).
+            - ``level_mask`` has shape ``(n_levels, max_width)`` with ``True``
+              for real nodes.
+        """
+        import numpy as np
+
+        n = len(parent_array)
+
+        # Compute depth of each node.
+        depth = np.zeros(n, dtype=int)
+        for i in range(1, n):
+            depth[i] = depth[parent_array[i]] + 1
+
+        max_depth = int(depth.max()) if n > 0 else 0
+        n_levels = max_depth + 1
+
+        # Group nodes by depth level.
+        levels: list[list[int]] = [[] for _ in range(n_levels)]
+        for i in range(n):
+            levels[depth[i]].append(i)
+
+        max_width = max(len(lev) for lev in levels) if levels else 1
+
+        # Build padded arrays.
+        level_nodes = np.zeros((n_levels, max_width), dtype=int)
+        level_mask = np.zeros((n_levels, max_width), dtype=bool)
+        for d, lev in enumerate(levels):
+            for j, node_idx in enumerate(lev):
+                level_nodes[d, j] = node_idx
+                level_mask[d, j] = True
+
+        return level_nodes, level_mask
 
     @staticmethod
     def build(
@@ -261,6 +332,13 @@ class KinDynParameters(JaxsimDataclass):
 
         motion_subspaces = jnp.vstack([jnp.zeros((6, 1))[jnp.newaxis, ...], S_J])
 
+        # ====================
+        # Tree level structure
+        # ====================
+
+        parent_array_np = np.array([-1, *list(parent_array_dict.values())], dtype=int)
+        level_nodes, level_mask = KinDynParameters._compute_tree_levels(parent_array_np)
+
         # ===========
         # Constraints
         # ===========
@@ -276,6 +354,8 @@ class KinDynParameters(JaxsimDataclass):
             _parent_array=HashedNumpyArray(array=parent_array),
             _support_body_array_bool=HashedNumpyArray(array=support_body_array_bool),
             _motion_subspaces=HashedNumpyArray(array=motion_subspaces),
+            _level_nodes=HashedNumpyArray(array=level_nodes),
+            _level_mask=HashedNumpyArray(array=level_mask),
             link_parameters=link_parameters,
             joint_model=joint_model,
             joint_parameters=joint_parameters,
