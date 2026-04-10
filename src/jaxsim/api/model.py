@@ -26,7 +26,7 @@ from jaxsim.api.kin_dyn_parameters import (
     LinkParametrizableShape,
     ScalingFactors,
 )
-from jaxsim.math import Adjoint, Cross, Skew, supported_joint_motion
+from jaxsim.math import Adjoint, Cross, Skew
 from jaxsim.parsers.descriptions import ModelDescription
 from jaxsim.parsers.descriptions.joint import JointDescription
 from jaxsim.parsers.descriptions.link import LinkDescription
@@ -2408,53 +2408,10 @@ def joint_transforms(
         of each joint.
     """
 
-    # Rename the base transform.
-    W_H_B = base_transform
-
-    # Extract the parent-to-predecessor fixed transforms of the joints.
-    λ_H_pre = jnp.vstack(
-        [
-            jnp.eye(4)[jnp.newaxis],
-            model.kin_dyn_parameters.joint_model.λ_H_pre[
-                1 : 1 + model.kin_dyn_parameters.number_of_joints()
-            ],
-        ]
+    return model.kin_dyn_parameters.joint_transforms(
+        joint_positions=joint_positions,
+        base_transform=base_transform,
     )
-    if model.kin_dyn_parameters.number_of_joints() == 0:
-        pre_H_suc_J = jnp.empty((0, 4, 4))
-    else:
-        pre_H_suc_J = jax.vmap(supported_joint_motion)(
-            joint_types=jnp.array(
-                model.kin_dyn_parameters.joint_model.joint_types[1:]
-            ).astype(int),
-            joint_positions=jnp.array(joint_positions),
-            joint_axes=jnp.array(
-                [j.axis for j in model.kin_dyn_parameters.joint_model.joint_axis]
-            ),
-        )
-
-    # Extract the transforms and motion subspaces of the joints.
-    # We stack the base transform W_H_B at index 0, and a dummy motion subspace
-    # for either the fixed or free-floating joint connecting the world to the base.
-    pre_H_suc = jnp.vstack([W_H_B[jnp.newaxis, ...], pre_H_suc_J])
-
-    # Extract the successor-to-child fixed transforms.
-    # Note that here we include also the index 0 since suc_H_child[0] stores the
-    # optional pose of the base link w.r.t. the root frame of the model.
-    # This is supported by SDF when the base link <pose> element is defined.
-    suc_H_i = model.kin_dyn_parameters.joint_model.suc_H_i[
-        jnp.arange(0, 1 + model.number_of_joints())
-    ]
-
-    # Compute the overall transforms from the parent to the child of each joint by
-    # composing all the components of our joint model.
-    i_X_λ = jax.vmap(
-        lambda λ_Hi_pre, pre_Hi_suc, suc_Hi_i: Adjoint.from_transform(
-            transform=λ_Hi_pre @ pre_Hi_suc @ suc_Hi_i, inverse=True
-        )
-    )(λ_H_pre, pre_H_suc, suc_H_i)
-
-    return i_X_λ
 
 
 # ======

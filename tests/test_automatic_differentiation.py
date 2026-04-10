@@ -6,6 +6,7 @@ import numpy as np
 from jax.test_util import check_grads
 
 import jaxsim.api as js
+import jaxsim.math
 import jaxsim.rbda
 import jaxsim.typing as jtp
 from jaxsim import VelRepr
@@ -244,7 +245,13 @@ def test_ad_fk(
         base_linear_velocity_inertial=W_v_lin,
         base_angular_velocity_inertial=W_v_ang,
         joint_velocities=ṡ,
-        joint_transforms=data._joint_transforms,
+        joint_transforms=model.kin_dyn_parameters.joint_transforms(
+            joint_positions=s,
+            base_transform=jaxsim.math.Transform.from_quaternion_and_translation(
+                translation=W_p_B,
+                quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
+            ),
+        ),
     )
 
     # Check derivatives against finite differences.

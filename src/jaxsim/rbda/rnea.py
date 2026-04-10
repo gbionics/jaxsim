@@ -21,7 +21,7 @@ def rnea(
     base_linear_acceleration: jtp.Vector | None = None,
     base_angular_acceleration: jtp.Vector | None = None,
     joint_accelerations: jtp.Vector | None = None,
-    joint_transforms: jtp.Matrix,
+    joint_transforms: jtp.MatrixLike,
     link_forces: jtp.Matrix | None = None,
     standard_gravity: jtp.FloatLike = STANDARD_GRAVITY,
 ) -> tuple[jtp.Vector, jtp.Vector]:
