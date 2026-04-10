@@ -111,13 +111,6 @@ jobs:
           cache: true
           cache-write: ${{ github.event_name == 'push' && github.ref_name == 'main' }}
 
-      - name: Ensure version file is written
-        if: |
-          contains(matrix.os, 'ubuntu') &&
-          (github.event_name != 'pull_request')
-        run: |
-          pixi run --frozen python -m setuptools_scm --force-write-version-file
-
       - name: Run the Python tests
         if: |
           contains(matrix.os, 'ubuntu') &&

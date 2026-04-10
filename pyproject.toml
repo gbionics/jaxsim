@@ -9,7 +9,6 @@ authors = [
 ]
 maintainers = [
     { name = "Filippo Luca Ferretti", email = "filippo.ferretti@iit.it" },
-    { name = "Alessandro Croci", email = "alessandro.croci@iit.it" },
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]
@@ -38,6 +37,7 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
     "Programming Language :: Python :: 3.13",
+    "Programming Language :: Python :: 3.14",
     "Programming Language :: Python :: Implementation :: CPython",
     "Topic :: Games/Entertainment :: Simulation",
     "Topic :: Scientific/Engineering :: Artificial Intelligence",
@@ -59,11 +59,6 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-style = [
-    "black[jupyter]",
-    "isort",
-    "pre-commit",
-]
 testing = [
     "chex >= 0.1.91",
     "idyntree >= 12.2.1",
@@ -81,7 +76,7 @@ viz = [
     "scipy >= 1.14.0",
 ]
 all = [
-    "jaxsim[style,testing,viz]",
+    "jaxsim[testing,viz]",
 ]
 
 [project.readme]
@@ -99,19 +94,21 @@ Tracker = "https://github.com/gbionics/jaxsim/issues"
 # ===========
 
 [build-system]
-build-backend = "setuptools.build_meta"
+build-backend = "hatchling.build"
 requires = [
-    "setuptools>=77",
-    "setuptools-scm[toml]>=8",
-    "wheel",
+    "hatchling",
+    "hatch-vcs",
 ]
 
-[tool.setuptools]
-package-dir = { "" = "src" }
+[tool.hatch.version]
+source = "vcs"
+raw-options = { local_scheme = "dirty-tag" }
 
-[tool.setuptools_scm]
-local_scheme = "dirty-tag"
-version_file = "src/jaxsim/_version.py"
+[tool.hatch.build.targets.wheel]
+packages = ["src/jaxsim"]
+
+[tool.hatch.build.hooks.vcs]
+version-file = "src/jaxsim/_version.py"
 
 # =================
 # Style and testing
@@ -238,6 +235,8 @@ scipy = "*"
 # Additional dependencies.
 #
 pip = "*"
+hatchling = "*"
+hatch-vcs = "*"
 
 # Dependencies from PyPI.
 [tool.pixi.pypi-dependencies]
@@ -253,7 +252,6 @@ no-build-isolation = ["jaxsim"]
 [tool.pixi.feature.test.tasks]
 pipcheck = "pip check"
 benchmark = { cmd = "pytest --benchmark-only --benchmark-warmup=ON", depends-on = ["pipcheck"] }
-lint = { cmd = "pre-commit run --all-files --hook-stage=manual" }
 test = { cmd = "pytest", depends-on = ["pipcheck"] }
 
 [tool.pixi.feature.test.dependencies]
@@ -267,7 +265,6 @@ pytest-benchmark = "*"
 pytest-icdiff = "*"
 pytest-xdist = "*"
 robot_descriptions = ">=1.16.0"
-setuptools_scm = ">=8.3.1,<9"
 
 # ----------------
 # feature.examples
@@ -286,10 +283,9 @@ robot_descriptions = ">=1.16.0"
 
 [tool.pixi.feature.gpu]
 platforms = ["linux-64"]
-system-requirements = { cuda = "12" }
+system-requirements = { cuda = "13" }
 
 [tool.pixi.feature.gpu.dependencies]
-cuda-version = "12.*"
 jaxlib = { version = "*", build = "*cuda*" }
 
 [tool.pixi.feature.gpu.tasks]

@@ -17,9 +17,14 @@ This will help catch issues before they become a part of the project.
 
 `pre-commit` is a tool that manages pre-commit hooks for your project.
 It will run checks on your code before you commit it, ensuring that it meets the project's standards.
-You should have it already installed if you followed the installation instructions in the [README](./README.md).
 
-Run the following command to install the hooks:
+First, install `pre-commit` if you haven't already:
+
+```bash
+pip install pre-commit
+```
+
+Then, run the following command to install the hooks:
 
 ```bash
 pre-commit install
