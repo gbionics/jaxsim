@@ -26,7 +26,7 @@ from jaxsim.api.kin_dyn_parameters import (
     LinkParametrizableShape,
     ScalingFactors,
 )
-from jaxsim.math import Adjoint, Cross, Skew
+from jaxsim.math import Adjoint, Cross, Skew, supported_joint_motion
 from jaxsim.parsers.descriptions import ModelDescription
 from jaxsim.parsers.descriptions.joint import JointDescription
 from jaxsim.parsers.descriptions.link import LinkDescription
@@ -1345,6 +1345,7 @@ def forward_dynamics_aba(
         base_linear_velocity=W_v_WB[0:3],
         base_angular_velocity=W_v_WB[3:6],
         joint_velocities=ṡ,
+        joint_transforms=data._joint_transforms,
         joint_forces=τ,
         link_forces=W_f_L,
         standard_gravity=model.gravity,
@@ -1522,6 +1523,7 @@ def forward_kinematics(model: JaxSimModel, data: js.data.JaxSimModelData) -> jtp
         joint_velocities=data.joint_velocities,
         base_linear_velocity_inertial=data._base_linear_velocity,
         base_angular_velocity_inertial=data._base_angular_velocity,
+        joint_transforms=data._joint_transforms,
     )
 
     return W_H_LL
@@ -1611,9 +1613,7 @@ def free_floating_mass_matrix_inverse(
     """
     M_inv_body = jaxsim.rbda.mass_inverse(
         model=model,
-        base_position=data.base_position,
-        base_quaternion=data.base_orientation,
-        joint_positions=data.joint_positions,
+        joint_transforms=data._joint_transforms,
     )
 
     match data.velocity_representation:
@@ -1878,6 +1878,7 @@ def inverse_dynamics(
         base_linear_acceleration=W_v̇_WB[0:3],
         base_angular_acceleration=W_v̇_WB[3:6],
         joint_accelerations=s̈,
+        joint_transforms=data._joint_transforms,
         link_forces=W_f_L,
         standard_gravity=model.gravity,
     )
@@ -2273,9 +2274,8 @@ def link_bias_accelerations(
     # Compute the parent-to-child adjoints and the motion subspaces of the joints.
     # These transforms define the relative kinematics of the entire model, including
     # the base transform for both floating-base and fixed-base models.
-    i_X_λi = model.kin_dyn_parameters.joint_transforms(
-        joint_positions=data.joint_positions, base_transform=W_H_B
-    )
+    # Ensure cached transforms stay on device when indexed with traced `i`.
+    i_X_λi = jnp.asarray(data._joint_transforms)
 
     # Extract the joint motion subspaces.
     S = model.kin_dyn_parameters.motion_subspaces
@@ -2388,6 +2388,73 @@ def link_bias_accelerations(
     )
 
     return O_v̇_WL
+
+
+@jax.jit
+def joint_transforms(
+    model: JaxSimModel, joint_positions: jtp.VectorLike, base_transform: jtp.MatrixLike
+) -> jtp.Array:
+    r"""
+    Return the transforms of the joints.
+
+    Args:
+        model: The model to consider.
+        joint_positions: The joint positions.
+        base_transform: The homogeneous matrix defining the base pose.
+
+    Returns:
+        The stacked transforms
+        :math:`{}^{i} \mathbf{H}_{\lambda(i)}(s)`
+        of each joint.
+    """
+
+    # Rename the base transform.
+    W_H_B = base_transform
+
+    # Extract the parent-to-predecessor fixed transforms of the joints.
+    λ_H_pre = jnp.vstack(
+        [
+            jnp.eye(4)[jnp.newaxis],
+            model.kin_dyn_parameters.joint_model.λ_H_pre[
+                1 : 1 + model.kin_dyn_parameters.number_of_joints()
+            ],
+        ]
+    )
+    if model.kin_dyn_parameters.number_of_joints() == 0:
+        pre_H_suc_J = jnp.empty((0, 4, 4))
+    else:
+        pre_H_suc_J = jax.vmap(supported_joint_motion)(
+            joint_types=jnp.array(
+                model.kin_dyn_parameters.joint_model.joint_types[1:]
+            ).astype(int),
+            joint_positions=jnp.array(joint_positions),
+            joint_axes=jnp.array(
+                [j.axis for j in model.kin_dyn_parameters.joint_model.joint_axis]
+            ),
+        )
+
+    # Extract the transforms and motion subspaces of the joints.
+    # We stack the base transform W_H_B at index 0, and a dummy motion subspace
+    # for either the fixed or free-floating joint connecting the world to the base.
+    pre_H_suc = jnp.vstack([W_H_B[jnp.newaxis, ...], pre_H_suc_J])
+
+    # Extract the successor-to-child fixed transforms.
+    # Note that here we include also the index 0 since suc_H_child[0] stores the
+    # optional pose of the base link w.r.t. the root frame of the model.
+    # This is supported by SDF when the base link <pose> element is defined.
+    suc_H_i = model.kin_dyn_parameters.joint_model.suc_H_i[
+        jnp.arange(0, 1 + model.number_of_joints())
+    ]
+
+    # Compute the overall transforms from the parent to the child of each joint by
+    # composing all the components of our joint model.
+    i_X_λ = jax.vmap(
+        lambda λ_Hi_pre, pre_Hi_suc, suc_Hi_i: Adjoint.from_transform(
+            transform=λ_Hi_pre @ pre_Hi_suc @ suc_Hi_i, inverse=True
+        )
+    )(λ_H_pre, pre_H_suc, suc_H_i)
+
+    return i_X_λ
 
 
 # ======

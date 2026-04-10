@@ -1,19 +1,14 @@
 import jax
 import jax.numpy as jnp
-import jaxlie
 
 import jaxsim.api as js
 import jaxsim.typing as jtp
-
-from . import utils
 
 
 def mass_inverse(
     model: js.model.JaxSimModel,
     *,
-    base_position: jtp.VectorLike,
-    base_quaternion: jtp.VectorLike,
-    joint_positions: jtp.VectorLike,
+    joint_transforms: jtp.MatrixLike,
 ) -> jtp.Matrix:
     """
     Compute the inverse of the mass matrix using an ABA-like algorithm.
@@ -21,20 +16,11 @@ def mass_inverse(
 
     Args:
         model: The model to consider.
-        base_position: The position of the base link.
-        base_quaternion: The orientation of the base link (w, x, y, z).
-        joint_positions: The positions of the joints.
+        joint_transforms: The parent-to-child transforms of the joints.
 
     Returns:
         The inverse of the mass matrix.
     """
-
-    W_p_B, W_Q_B, s, _, _, _, _, _, _, _ = utils.process_inputs(
-        model=model,
-        base_position=base_position,
-        base_quaternion=base_quaternion,
-        joint_positions=joint_positions,
-    )
 
     # Get the 6D spatial inertia matrices of all links.
     I_A = js.model.link_spatial_inertia_matrices(model=model)
@@ -44,19 +30,10 @@ def mass_inverse(
     #   λ[i] = parent link index for link i.
     λ = model.kin_dyn_parameters.parent_array
 
-    # Compute the base transform.
-    W_H_B = jaxlie.SE3.from_rotation_and_translation(
-        rotation=jaxlie.SO3(wxyz=W_Q_B),
-        translation=W_p_B,
-    )
-
-    # Compute the parent-to-child adjoints of the joints.
+    # Extract the parent-to-child adjoints of the joints.
     # These transforms define the relative kinematics of the entire model, including
     # the base transform for both floating-base and fixed-base models.
-    i_X_λi = model.kin_dyn_parameters.joint_transforms(
-        joint_positions=s,
-        base_transform=W_H_B.as_matrix(),
-    )
+    i_X_λi = jnp.asarray(joint_transforms)
 
     # Extract the joint motion subspaces.
     S = model.kin_dyn_parameters.motion_subspaces

@@ -168,6 +168,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
                 base_linear_velocity_inertial=W_v_WB[0:3],
                 base_angular_velocity_inertial=W_v_WB[3:6],
                 joint_velocities=joint_velocities,
+                joint_transforms=joint_transforms,
             )
         )
 
@@ -489,6 +490,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
             base_angular_velocity_inertial=jnp.atleast_2d(
                 base_angular_velocity_inertial
             ),
+            joint_transforms=joint_transforms,
         )
 
         # Adjust the output shapes.

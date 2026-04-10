@@ -1,6 +1,5 @@
 import jax
 import jax.numpy as jnp
-import jaxlie
 
 import jaxsim.api as js
 import jaxsim.typing as jtp
@@ -18,6 +17,7 @@ def forward_kinematics_model(
     base_linear_velocity_inertial: jtp.VectorLike,
     base_angular_velocity_inertial: jtp.VectorLike,
     joint_velocities: jtp.VectorLike,
+    joint_transforms: jtp.MatrixLike,
 ) -> jtp.Array:
     """
     Compute the forward kinematics.
@@ -30,12 +30,13 @@ def forward_kinematics_model(
         base_linear_velocity_inertial: The linear velocity of the base link in inertial-fixed representation.
         base_angular_velocity_inertial: The angular velocity of the base link in inertial-fixed representation.
         joint_velocities: The velocities of the joints.
+        joint_transforms: The parent-to-child transforms of the joints.
 
     Returns:
         A 3D array containing the SE(3) transforms of all links belonging to the model.
     """
 
-    W_p_B, W_Q_B, s, W_v_WB, ṡ, _, _, _, _, _ = utils.process_inputs(
+    _, _, _, W_v_WB, ṡ, _, _, _, _, _ = utils.process_inputs(
         model=model,
         base_position=base_position,
         base_quaternion=base_quaternion,
@@ -49,18 +50,10 @@ def forward_kinematics_model(
     # Note: λ(0) must not be used, it's initialized to -1.
     λ = model.kin_dyn_parameters.parent_array
 
-    # Compute the base transform.
-    W_H_B = jaxlie.SE3.from_rotation_and_translation(
-        rotation=jaxlie.SO3(wxyz=W_Q_B),
-        translation=W_p_B,
-    )
-
-    # Compute the parent-to-child adjoints of the joints.
+    # Extract the parent-to-child adjoints of the joints.
     # These transforms define the relative kinematics of the entire model, including
     # the base transform for both floating-base and fixed-base models.
-    i_X_λi = model.kin_dyn_parameters.joint_transforms(
-        joint_positions=s, base_transform=W_H_B.as_matrix()
-    )
+    i_X_λi = jnp.asarray(joint_transforms)
 
     # Allocate the buffer of transforms world -> link and initialize the base pose.
     W_X_i = jnp.zeros(shape=(model.number_of_links(), 6, 6))

@@ -21,6 +21,7 @@ def rnea(
     base_linear_acceleration: jtp.Vector | None = None,
     base_angular_acceleration: jtp.Vector | None = None,
     joint_accelerations: jtp.Vector | None = None,
+    joint_transforms: jtp.Matrix,
     link_forces: jtp.Matrix | None = None,
     standard_gravity: jtp.FloatLike = STANDARD_GRAVITY,
 ) -> tuple[jtp.Vector, jtp.Vector]:
@@ -42,6 +43,7 @@ def rnea(
         base_angular_acceleration:
             The angular acceleration of the base link in inertial-fixed representation.
         joint_accelerations: The accelerations of the joints.
+        joint_transforms: The parent-to-child transforms of the joints.
         link_forces:
             The forces applied to the links expressed in the world frame.
         standard_gravity: The standard gravity constant.
@@ -88,12 +90,11 @@ def rnea(
     W_X_B = W_H_B.adjoint()
     B_X_W = W_H_B.inverse().adjoint()
 
-    # Compute the parent-to-child adjoints of the joints.
+    # Extract the parent-to-child adjoints of the joints.
     # These transforms define the relative kinematics of the entire model, including
     # the base transform for both floating-base and fixed-base models.
-    i_X_λi = model.kin_dyn_parameters.joint_transforms(
-        joint_positions=s, base_transform=W_H_B.as_matrix()
-    )
+    # Ensure cached transforms are JAX arrays so they work with traced indices.
+    i_X_λi = jnp.asarray(joint_transforms)
 
     # Extract the joint motion subspaces.
     S = model.kin_dyn_parameters.motion_subspaces

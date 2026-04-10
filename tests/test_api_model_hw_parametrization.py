@@ -360,8 +360,14 @@ def test_hw_parameters_optimization(jaxsim_model_garpez: js.model.JaxSimModel):
             model=model, scaling_factors=scaling_factors
         )
 
+        # Sync the data's cached kinematics (joint transforms, link transforms, …)
+        # with the updated model geometry before running any dynamics.
+        updated_data = data.replace(model=updated_model)
+
         # Compute forward kinematics for the link.
-        W_H_L = js.model.forward_kinematics(model=updated_model, data=data)[link_idx]
+        W_H_L = js.model.forward_kinematics(model=updated_model, data=updated_data)[
+            link_idx
+        ]
 
         # Extract the height (z-axis position) of the link.
         link4_height = W_H_L[2, 3]  # Assuming z-axis is the third row.
