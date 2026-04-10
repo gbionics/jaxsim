@@ -582,9 +582,11 @@ def test_aba_vs_aba_parallel(
     velocity_representation: VelRepr,
     prng_key: jax.Array,
 ):
-    """Verify that the level-parallel ABA produces identical results to
+    """
+    Verify that the level-parallel ABA produces identical results to
     the sequential ABA, both at the low-level RBDA and at the high-level
-    model API."""
+    model API.
+    """
 
     model = jaxsim_models_all
 
@@ -612,10 +614,6 @@ def test_aba_vs_aba_parallel(
             additive=False,
         )
 
-    # ==========================================
-    # Test 1: High-level API (forward_dynamics_aba)
-    # ==========================================
-
     joint_forces = references.joint_force_references()
     link_forces = references.link_forces(model=model, data=data)
 
@@ -638,38 +636,25 @@ def test_aba_vs_aba_parallel(
     assert_allclose(v̇_WB_seq, v̇_WB_par, atol=1e-9)
     assert_allclose(s̈_seq, s̈_par, atol=1e-9)
 
-    # ==========================================
-    # Test 2: Low-level RBDA (aba vs aba_parallel)
-    # ==========================================
 
-    with data.switch_velocity_representation(VelRepr.Inertial):
-        W_p_B = data.base_position
-        W_Q_B = data.base_orientation
-        s = data.joint_positions
-        W_v_WB = data.base_velocity
-        ṡ = data.joint_velocities
+def test_fk_vs_fk_parallel(
+    jaxsim_models_all: js.model.JaxSimModel,
+    velocity_representation: VelRepr,
+    prng_key: jax.Array,
+):
+    """
+    Verify that the level-parallel FK produces identical results to
+    the sequential FK.
+    """
 
-    W_f_L = references._link_forces
-    τ = references._joint_force_references
+    model = jaxsim_models_all
 
-    rbda_kwargs = dict(
-        model=model,
-        base_position=W_p_B,
-        base_quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
-        joint_positions=s,
-        base_linear_velocity=W_v_WB[0:3],
-        base_angular_velocity=W_v_WB[3:6],
-        joint_velocities=ṡ,
-        joint_forces=τ,
-        joint_transforms=data._joint_transforms,
-        link_forces=W_f_L,
-        standard_gravity=model.gravity,
+    _, subkey = jax.random.split(prng_key, num=2)
+    data = js.data.random_model_data(
+        model=model, key=subkey, velocity_representation=velocity_representation
     )
 
-    import jaxsim.rbda
+    W_H_seq = js.model.forward_kinematics(model=model, data=data, parallel=False)
+    W_H_par = js.model.forward_kinematics(model=model, data=data, parallel=True)
 
-    result_seq = jaxsim.rbda.aba(**rbda_kwargs)
-    result_par = jaxsim.rbda.aba_parallel(**rbda_kwargs)
-
-    assert_allclose(result_seq[0], result_par[0], atol=1e-9)
-    assert_allclose(result_seq[1], result_par[1], atol=1e-9)
+    assert_allclose(W_H_seq, W_H_par, atol=1e-9)

@@ -1785,22 +1785,39 @@ def forward_dynamics_crb(
     return v̇_WB, s̈
 
 
-@jax.jit
+@functools.partial(jax.jit, static_argnames=("parallel",))
 @js.common.named_scope
-def forward_kinematics(model: JaxSimModel, data: js.data.JaxSimModelData) -> jtp.Matrix:
+def forward_kinematics(
+    model: JaxSimModel,
+    data: js.data.JaxSimModelData,
+    *,
+    parallel: bool = False,
+) -> jtp.Matrix:
     """
     Compute the forward kinematics of the model.
 
     Args:
         model: The model to consider.
         data: The data of the considered model.
+        parallel: If True, use the level-parallel FK implementation that
+            processes independent tree branches simultaneously.
 
     Returns:
         The nL x 4 x 4 array containing the stacked homogeneous transformations
         of the links. The first axis is the link index.
     """
 
-    W_H_LL, _ = jaxsim.rbda.forward_kinematics_model(
+    fk_fn = (
+        jaxsim.rbda.forward_kinematics_model_parallel
+        if parallel
+        else jaxsim.rbda.forward_kinematics_model
+    )
+
+    extra_kwargs = {}
+    if parallel:
+        extra_kwargs["joint_transforms"] = data._joint_transforms
+
+    W_H_LL, _ = fk_fn(
         model=model,
         base_position=data.base_position,
         base_quaternion=data.base_quaternion,
@@ -1808,7 +1825,7 @@ def forward_kinematics(model: JaxSimModel, data: js.data.JaxSimModelData) -> jtp
         joint_velocities=data.joint_velocities,
         base_linear_velocity_inertial=data._base_linear_velocity,
         base_angular_velocity_inertial=data._base_angular_velocity,
-        joint_transforms=data._joint_transforms,
+        **extra_kwargs,
     )
 
     return W_H_LL
