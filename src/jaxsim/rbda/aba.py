@@ -18,6 +18,7 @@ def aba(
     base_linear_velocity: jtp.VectorLike,
     base_angular_velocity: jtp.VectorLike,
     joint_velocities: jtp.VectorLike,
+    joint_transforms: jtp.MatrixLike,
     joint_forces: jtp.VectorLike | None = None,
     link_forces: jtp.MatrixLike | None = None,
     standard_gravity: jtp.FloatLike = STANDARD_GRAVITY,
@@ -35,6 +36,7 @@ def aba(
         base_angular_velocity:
             The angular velocity of the base link in inertial-fixed representation.
         joint_velocities: The velocities of the joints.
+        joint_transforms: The parent-to-child transforms of the joints.
         joint_forces: The forces applied to the joints.
         link_forces:
             The forces applied to the links expressed in the world frame.
@@ -85,12 +87,10 @@ def aba(
     W_X_B = W_H_B.adjoint()
     B_X_W = W_H_B.inverse().adjoint()
 
-    # Compute the parent-to-child adjoints of the joints.
+    # Extract the parent-to-child adjoints of the joints.
     # These transforms define the relative kinematics of the entire model, including
     # the base transform for both floating-base and fixed-base models.
-    i_X_λi = model.kin_dyn_parameters.joint_transforms(
-        joint_positions=s, base_transform=W_H_B.as_matrix()
-    )
+    i_X_λi = jnp.asarray(joint_transforms)
 
     # Extract the joint motion subspaces.
     S = model.kin_dyn_parameters.motion_subspaces

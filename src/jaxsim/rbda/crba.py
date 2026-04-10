@@ -7,7 +7,11 @@ import jaxsim.typing as jtp
 from . import utils
 
 
-def crba(model: js.model.JaxSimModel, *, joint_positions: jtp.Vector) -> jtp.Matrix:
+def crba(
+    model: js.model.JaxSimModel,
+    *,
+    joint_positions: jtp.Vector,
+) -> jtp.Matrix:
     """
     Compute the free-floating mass matrix using the Composite Rigid-Body Algorithm (CRBA).
 

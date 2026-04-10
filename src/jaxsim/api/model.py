@@ -1345,6 +1345,7 @@ def forward_dynamics_aba(
         base_linear_velocity=W_v_WB[0:3],
         base_angular_velocity=W_v_WB[3:6],
         joint_velocities=ṡ,
+        joint_transforms=data._joint_transforms,
         joint_forces=τ,
         link_forces=W_f_L,
         standard_gravity=model.gravity,
@@ -1522,6 +1523,7 @@ def forward_kinematics(model: JaxSimModel, data: js.data.JaxSimModelData) -> jtp
         joint_velocities=data.joint_velocities,
         base_linear_velocity_inertial=data._base_linear_velocity,
         base_angular_velocity_inertial=data._base_angular_velocity,
+        joint_transforms=data._joint_transforms,
     )
 
     return W_H_LL
@@ -1611,9 +1613,7 @@ def free_floating_mass_matrix_inverse(
     """
     M_inv_body = jaxsim.rbda.mass_inverse(
         model=model,
-        base_position=data.base_position,
-        base_quaternion=data.base_orientation,
-        joint_positions=data.joint_positions,
+        joint_transforms=data._joint_transforms,
     )
 
     match data.velocity_representation:
@@ -1878,6 +1878,7 @@ def inverse_dynamics(
         base_linear_acceleration=W_v̇_WB[0:3],
         base_angular_acceleration=W_v̇_WB[3:6],
         joint_accelerations=s̈,
+        joint_transforms=data._joint_transforms,
         link_forces=W_f_L,
         standard_gravity=model.gravity,
     )
@@ -2273,9 +2274,8 @@ def link_bias_accelerations(
     # Compute the parent-to-child adjoints and the motion subspaces of the joints.
     # These transforms define the relative kinematics of the entire model, including
     # the base transform for both floating-base and fixed-base models.
-    i_X_λi = model.kin_dyn_parameters.joint_transforms(
-        joint_positions=data.joint_positions, base_transform=W_H_B
-    )
+    # Ensure cached transforms stay on device when indexed with traced `i`.
+    i_X_λi = jnp.asarray(data._joint_transforms)
 
     # Extract the joint motion subspaces.
     S = model.kin_dyn_parameters.motion_subspaces
@@ -2388,6 +2388,30 @@ def link_bias_accelerations(
     )
 
     return O_v̇_WL
+
+
+@jax.jit
+def joint_transforms(
+    model: JaxSimModel, joint_positions: jtp.VectorLike, base_transform: jtp.MatrixLike
+) -> jtp.Array:
+    r"""
+    Return the transforms of the joints.
+
+    Args:
+        model: The model to consider.
+        joint_positions: The joint positions.
+        base_transform: The homogeneous matrix defining the base pose.
+
+    Returns:
+        The stacked transforms
+        :math:`{}^{i} \mathbf{H}_{\lambda(i)}(s)`
+        of each joint.
+    """
+
+    return model.kin_dyn_parameters.joint_transforms(
+        joint_positions=joint_positions,
+        base_transform=base_transform,
+    )
 
 
 # ======

@@ -70,7 +70,6 @@ def semi_implicit_euler_integration(
             contact_state_derivative,
         )
 
-    # TODO: Avoid double replace, e.g. by computing cached value here
     data = dataclasses.replace(
         data,
         _base_quaternion=W_Q_B,
@@ -82,7 +81,7 @@ def semi_implicit_euler_integration(
         contact_state=integrated_contact_state,
     )
 
-    # Update the cached computations.
+    # Recompute kinematic caches for the new state.
     data = data.replace(model=model)
 
     return data

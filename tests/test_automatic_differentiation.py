@@ -6,6 +6,7 @@ import numpy as np
 from jax.test_util import check_grads
 
 import jaxsim.api as js
+import jaxsim.math
 import jaxsim.rbda
 import jaxsim.typing as jtp
 from jaxsim import VelRepr
@@ -83,6 +84,7 @@ def test_ad_aba(
     s = data.joint_positions
     W_v_WB = data.base_velocity
     ṡ = data.joint_velocities
+    i_X_λi = data._joint_transforms
 
     # Inputs.
     W_f_L = references.link_forces(model=model)
@@ -93,7 +95,7 @@ def test_ad_aba(
     # ====
 
     # Get a closure exposing only the parameters to be differentiated.
-    aba = lambda W_p_B, W_Q_B, s, W_v_WB, ṡ, τ, W_f_L, g: jaxsim.rbda.aba(
+    aba = lambda W_p_B, W_Q_B, s, W_v_WB, ṡ, i_X_λi, τ, W_f_L, g: jaxsim.rbda.aba(
         model=model,
         base_position=W_p_B,
         base_quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
@@ -102,6 +104,7 @@ def test_ad_aba(
         base_angular_velocity=W_v_WB[3:6],
         joint_velocities=ṡ,
         joint_forces=τ,
+        joint_transforms=i_X_λi,
         link_forces=W_f_L,
         standard_gravity=g,
     )
@@ -109,7 +112,7 @@ def test_ad_aba(
     # Check derivatives against finite differences.
     check_grads(
         f=aba,
-        args=(W_p_B, W_Q_B, s, W_v_WB, ṡ, τ, W_f_L, g),
+        args=(W_p_B, W_Q_B, s, W_v_WB, ṡ, i_X_λi, τ, W_f_L, g),
         order=AD_ORDER,
         modes=["rev", "fwd"],
         eps=ε,
@@ -137,6 +140,7 @@ def test_ad_rnea(
     s = data.joint_positions
     W_v_WB = data.base_velocity
     ṡ = data.joint_velocities
+    i_X_λi = data._joint_transforms
 
     # Inputs.
     W_f_L = references.link_forces(model=model)
@@ -150,7 +154,7 @@ def test_ad_rnea(
     s̈ = jax.random.uniform(subkey2, shape=(model.dofs(),), minval=-1)
 
     # Get a closure exposing only the parameters to be differentiated.
-    rnea = lambda W_p_B, W_Q_B, s, W_v_WB, ṡ, W_v̇_WB, s̈, W_f_L, g: jaxsim.rbda.rnea(
+    rnea = lambda W_p_B, W_Q_B, s, W_v_WB, ṡ, W_v̇_WB, s̈, i_X_λi, W_f_L, g: jaxsim.rbda.rnea(
         model=model,
         base_position=W_p_B,
         base_quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
@@ -161,6 +165,7 @@ def test_ad_rnea(
         base_linear_acceleration=W_v̇_WB[0:3],
         base_angular_acceleration=W_v̇_WB[3:6],
         joint_accelerations=s̈,
+        joint_transforms=i_X_λi,
         link_forces=W_f_L,
         standard_gravity=g,
     )
@@ -168,7 +173,7 @@ def test_ad_rnea(
     # Check derivatives against finite differences.
     check_grads(
         f=rnea,
-        args=(W_p_B, W_Q_B, s, W_v_WB, ṡ, W_v̇_WB, s̈, W_f_L, g),
+        args=(W_p_B, W_Q_B, s, W_v_WB, ṡ, W_v̇_WB, s̈, i_X_λi, W_f_L, g),
         order=AD_ORDER,
         modes=["rev", "fwd"],
         eps=ε,
@@ -240,6 +245,13 @@ def test_ad_fk(
         base_linear_velocity_inertial=W_v_lin,
         base_angular_velocity_inertial=W_v_ang,
         joint_velocities=ṡ,
+        joint_transforms=model.kin_dyn_parameters.joint_transforms(
+            joint_positions=s,
+            base_transform=jaxsim.math.Transform.from_quaternion_and_translation(
+                translation=W_p_B,
+                quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
+            ),
+        ),
     )
 
     # Check derivatives against finite differences.
