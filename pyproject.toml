@@ -202,7 +202,8 @@ requires-pixi = ">=0.39.0"
 # We resolve only two groups: cpu and gpu.
 # Then, multiple environments can be created from these groups.
 default = { features = ["test", "examples"] }
-gpu = { features = ["test", "examples", "gpu"] }
+cuda = { features = ["test", "examples", "cuda"] }
+rocm = { features = ["test", "examples", "rocm"] }
 
 # ---------------
 # feature.default
@@ -277,16 +278,31 @@ examples = { cmd = "jupyter notebook ./examples" }
 notebook = "*"
 robot_descriptions = ">=1.16.0"
 
-# -----------
-# feature.gpu
-# -----------
+# ------------
+# feature.cuda
+# ------------
 
-[tool.pixi.feature.gpu]
+[tool.pixi.feature.cuda]
 platforms = ["linux-64"]
 system-requirements = { cuda = "13" }
 
-[tool.pixi.feature.gpu.dependencies]
+[tool.pixi.feature.cuda.dependencies]
 jaxlib = { version = "*", build = "*cuda*" }
 
-[tool.pixi.feature.gpu.tasks]
+[tool.pixi.feature.cuda.tasks]
 test-gpu = { cmd = "pytest --gpu-only", depends-on = ["pipcheck"] }
+
+# ------------
+# feature.rocm
+# ------------
+ 
+[tool.pixi.feature.rocm]
+platforms = ["linux-64"]
+channel-priority = "disabled"
+channels = ["https://prefix.dev/rock-the-conda-strix", "conda-forge"]
+ 
+[tool.pixi.feature.rocm.dependencies]
+jax-rocm7-plugin = "*"
+ 
+[tool.pixi.feature.rocm.tasks]
+test-rocm = { cmd = "pytest --gpu-only", depends-on = ["pipcheck"] }
