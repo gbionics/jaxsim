@@ -84,7 +84,6 @@ def test_ad_aba(
     s = data.joint_positions
     W_v_WB = data.base_velocity
     ṡ = data.joint_velocities
-    i_X_λi = data._joint_transforms
 
     # Inputs.
     W_f_L = references.link_forces(model=model)
@@ -95,24 +94,114 @@ def test_ad_aba(
     # ====
 
     # Get a closure exposing only the parameters to be differentiated.
-    aba = lambda W_p_B, W_Q_B, s, W_v_WB, ṡ, i_X_λi, τ, W_f_L, g: jaxsim.rbda.aba(
+    def aba(W_p_B, W_Q_B, s, W_v_WB, ṡ, τ, W_f_L, g):
+        import jaxlie
+
+        W_H_B = jaxlie.SE3.from_rotation_and_translation(
+            rotation=jaxlie.SO3(wxyz=W_Q_B / jnp.linalg.norm(W_Q_B)),
+            translation=W_p_B,
+        ).as_matrix()
+        joint_transforms = model.kin_dyn_parameters.joint_transforms(
+            joint_positions=s, base_transform=W_H_B
+        )
+        return jaxsim.rbda.aba(
+            model=model,
+            base_position=W_p_B,
+            base_quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
+            joint_positions=s,
+            base_linear_velocity=W_v_WB[0:3],
+            base_angular_velocity=W_v_WB[3:6],
+            joint_velocities=ṡ,
+            joint_transforms=joint_transforms,
+            joint_forces=τ,
+            link_forces=W_f_L,
+            standard_gravity=g,
+        )
+
+    # Check derivatives against finite differences.
+    check_grads(
+        f=aba,
+        args=(W_p_B, W_Q_B, s, W_v_WB, ṡ, τ, W_f_L, g),
+        order=AD_ORDER,
+        modes=["rev", "fwd"],
+        eps=ε,
+    )
+
+
+def test_ad_aba_parallel(
+    jaxsim_models_types: js.model.JaxSimModel,
+    prng_key: jax.Array,
+):
+
+    model = jaxsim_models_types
+
+    _, subkey = jax.random.split(prng_key, num=2)
+    data, references = get_random_data_and_references(
+        model=model, velocity_representation=VelRepr.Inertial, key=subkey
+    )
+
+    g = jaxsim.math.STANDARD_GRAVITY
+
+    W_p_B = data.base_position
+    W_Q_B = data.base_orientation
+    s = data.joint_positions
+    W_v_WB = data.base_velocity
+    ṡ = data.joint_velocities
+    i_X_λi = data._joint_transforms
+
+    W_f_L = references.link_forces(model=model)
+    τ = references.joint_force_references(model=model)
+
+    # Verify parallel ABA matches sequential ABA.
+    result_seq = jaxsim.rbda.aba(
         model=model,
         base_position=W_p_B,
         base_quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
         joint_positions=s,
         base_linear_velocity=W_v_WB[0:3],
         base_angular_velocity=W_v_WB[3:6],
-        joint_velocities=ṡ,
+        joint_velocities=ṡ,
+        joint_transforms=i_X_λi,
+        joint_forces=τ,
+        link_forces=W_f_L,
+        standard_gravity=g,
+    )
+
+    result_par = jaxsim.rbda.aba_parallel(
+        model=model,
+        base_position=W_p_B,
+        base_quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
+        joint_positions=s,
+        base_linear_velocity=W_v_WB[0:3],
+        base_angular_velocity=W_v_WB[3:6],
+        joint_velocities=ṡ,
         joint_forces=τ,
         joint_transforms=i_X_λi,
         link_forces=W_f_L,
         standard_gravity=g,
     )
 
+    assert_allclose(result_seq[0], result_par[0], atol=1e-10)
+    assert_allclose(result_seq[1], result_par[1], atol=1e-10)
+
     # Check derivatives against finite differences.
+    aba_par = lambda W_p_B, W_Q_B, s, W_v_WB, ṡ, i_X_λi, τ, W_f_L, g: jaxsim.rbda.aba_parallel(
+        model=model,
+        base_position=W_p_B,
+        base_quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
+        joint_positions=s,
+        base_linear_velocity=W_v_WB[0:3],
+        base_angular_velocity=W_v_WB[3:6],
+        joint_velocities=ṡ,
+        joint_forces=τ,
+        joint_transforms=i_X_λi,
+        link_forces=W_f_L,
+        standard_gravity=g,
+    )
+
     check_grads(
-        f=aba,
-        args=(W_p_B, W_Q_B, s, W_v_WB, ṡ, i_X_λi, τ, W_f_L, g),
+        f=aba_par,
+        args=(W_p_B, W_Q_B, s, W_v_WB, ṡ, i_X_λi, τ, W_f_L, g),
         order=AD_ORDER,
         modes=["rev", "fwd"],
         eps=ε,
@@ -237,22 +326,26 @@ def test_ad_fk(
     # ====
 
     # Get a closure exposing only the parameters to be differentiated.
-    fk = lambda W_p_B, W_Q_B, s, W_v_lin, W_v_ang, ṡ: jaxsim.rbda.forward_kinematics_model(
-        model=model,
-        base_position=W_p_B,
-        base_quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
-        joint_positions=s,
-        base_linear_velocity_inertial=W_v_lin,
-        base_angular_velocity_inertial=W_v_ang,
-        joint_velocities=ṡ,
-        joint_transforms=model.kin_dyn_parameters.joint_transforms(
+    def fk(W_p_B, W_Q_B, s, W_v_lin, W_v_ang, ṡ):
+        import jaxlie
+
+        W_H_B = jaxlie.SE3.from_rotation_and_translation(
+            rotation=jaxlie.SO3(wxyz=W_Q_B / jnp.linalg.norm(W_Q_B)),
+            translation=W_p_B,
+        ).as_matrix()
+        joint_transforms = model.kin_dyn_parameters.joint_transforms(
+            joint_positions=s, base_transform=W_H_B
+        )
+        return jaxsim.rbda.forward_kinematics_model(
+            model=model,
+            base_position=W_p_B,
+            base_quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
             joint_positions=s,
-            base_transform=jaxsim.math.Transform.from_quaternion_and_translation(
-                translation=W_p_B,
-                quaternion=W_Q_B / jnp.linalg.norm(W_Q_B),
-            ),
-        ),
-    )
+            base_linear_velocity_inertial=W_v_lin,
+            base_angular_velocity_inertial=W_v_ang,
+            joint_velocities=ṡ,
+            joint_transforms=joint_transforms,
+        )
 
     # Check derivatives against finite differences.
     check_grads(

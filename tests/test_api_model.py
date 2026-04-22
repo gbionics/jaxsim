@@ -575,3 +575,86 @@ def test_model_fd_id_consistency(
 
         assert_allclose(τ_id, references.joint_force_references(model=model))
         assert_allclose(fB_id, references.link_forces(model=model, data=data)[0])
+
+
+def test_aba_vs_aba_parallel(
+    jaxsim_models_all: js.model.JaxSimModel,
+    velocity_representation: VelRepr,
+    prng_key: jax.Array,
+):
+    """
+    Verify that the level-parallel ABA produces identical results to
+    the sequential ABA, both at the low-level RBDA and at the high-level
+    model API.
+    """
+
+    model = jaxsim_models_all
+
+    key, subkey = jax.random.split(prng_key, num=2)
+    data = js.data.random_model_data(
+        model=model, key=subkey, velocity_representation=velocity_representation
+    )
+
+    # Create random references.
+    _, subkey1, subkey2 = jax.random.split(key, num=3)
+    references = js.references.JaxSimModelReferences.build(
+        model=model,
+        joint_force_references=10 * jax.random.uniform(subkey1, shape=(model.dofs(),)),
+        link_forces=jax.random.uniform(subkey2, shape=(model.number_of_links(), 6)),
+        data=data,
+        velocity_representation=data.velocity_representation,
+    )
+
+    if not model.floating_base():
+        references = references.apply_link_forces(
+            forces=jnp.atleast_2d(jnp.zeros(6)),
+            model=model,
+            data=data,
+            link_names=(model.base_link(),),
+            additive=False,
+        )
+
+    joint_forces = references.joint_force_references()
+    link_forces = references.link_forces(model=model, data=data)
+
+    v̇_WB_seq, s̈_seq = js.model.forward_dynamics_aba(
+        model=model,
+        data=data,
+        joint_forces=joint_forces,
+        link_forces=link_forces,
+        parallel=False,
+    )
+
+    v̇_WB_par, s̈_par = js.model.forward_dynamics_aba(
+        model=model,
+        data=data,
+        joint_forces=joint_forces,
+        link_forces=link_forces,
+        parallel=True,
+    )
+
+    assert_allclose(v̇_WB_seq, v̇_WB_par, atol=1e-9)
+    assert_allclose(s̈_seq, s̈_par, atol=1e-9)
+
+
+def test_fk_vs_fk_parallel(
+    jaxsim_models_all: js.model.JaxSimModel,
+    velocity_representation: VelRepr,
+    prng_key: jax.Array,
+):
+    """
+    Verify that the level-parallel FK produces identical results to
+    the sequential FK.
+    """
+
+    model = jaxsim_models_all
+
+    _, subkey = jax.random.split(prng_key, num=2)
+    data = js.data.random_model_data(
+        model=model, key=subkey, velocity_representation=velocity_representation
+    )
+
+    W_H_seq = js.model.forward_kinematics(model=model, data=data, parallel=False)
+    W_H_par = js.model.forward_kinematics(model=model, data=data, parallel=True)
+
+    assert_allclose(W_H_seq, W_H_par, atol=1e-9)
