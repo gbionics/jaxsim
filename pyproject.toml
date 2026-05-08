@@ -8,7 +8,7 @@ authors = [
     { name = "Filippo Luca Ferretti", email = "filippoluca.ferretti@outlook.com" },
 ]
 maintainers = [
-    { name = "Filippo Luca Ferretti", email = "filippo.ferretti@iit.it" },
+    { name = "Filippo Luca Ferretti", email = "filippo.ferretti@outlook.com" },
 ]
 license = "BSD-3-Clause"
 license-files = ["LICENSE"]

@@ -327,13 +327,12 @@ If you use JaxSim in your work, please cite the following paper:
 
 ## People
 
-| Authors | Maintainers |
+| Authors | Maintainer |
 |:------:|:-----------:|
-| [<img src="https://avatars.githubusercontent.com/u/469199?v=4" width="40">][df] [<img src="https://avatars.githubusercontent.com/u/102977828?v=4" width="40">][ff] | [<img src="https://avatars.githubusercontent.com/u/102977828?v=4" width="40">][ff] [<img src="https://avatars.githubusercontent.com/u/57228872?v=4" width="40">][ac] |
+| [<img src="https://avatars.githubusercontent.com/u/469199?v=4" width="40">][df] [<img src="https://avatars.githubusercontent.com/u/102977828?v=4" width="40">][ff] | [<img src="https://avatars.githubusercontent.com/u/102977828?v=4" width="40">][ff] |
 
 [df]: https://github.com/diegoferigo
 [ff]: https://github.com/flferretti
-[ac]: https://github.com/xela-95
 
 ## License
 
