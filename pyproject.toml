@@ -195,7 +195,7 @@ ignore = [
 
 [tool.pixi.workspace]
 channels = ["conda-forge"]
-platforms = ["linux-64", "linux-aarch64", "osx-arm64", "osx-64"]
+platforms = [{ platform = "linux-64", cuda = "13" }, "linux-aarch64", "osx-arm64", "osx-64", { name = "gpu-linux-64", platform = "linux-64", cuda = "13" }]
 requires-pixi = ">=0.39.0"
 preview = ["pixi-build"]
 
@@ -283,8 +283,7 @@ robot_descriptions = ">=1.16.0"
 # -----------
 
 [tool.pixi.feature.gpu]
-platforms = ["linux-64"]
-system-requirements = { cuda = "13" }
+platforms = ["linux-64-cuda-13", "gpu-linux-64"]
 
 [tool.pixi.feature.gpu.dependencies]
 jaxlib = { version = "*", build = "*cuda*" }
