@@ -202,7 +202,7 @@ preview = ["pixi-build"]
 [tool.pixi.environments]
 # We resolve only two groups: cpu and gpu.
 # Then, multiple environments can be created from these groups.
-default = { features = ["test", "examples"] }
+default = { features = ["cpu", "test", "examples"] }
 gpu = { features = ["test", "examples", "gpu"] }
 
 # ---------------
@@ -277,6 +277,15 @@ examples = { cmd = "jupyter notebook ./examples" }
 [tool.pixi.feature.examples.dependencies]
 notebook = "*"
 robot_descriptions = ">=1.16.0"
+
+# -----------
+# feature.cpu
+# -----------
+
+[tool.pixi.feature.cpu]
+
+[tool.pixi.feature.cpu.dependencies]
+jaxlib = { version = "*", build = "*cpu*" }
 
 # -----------
 # feature.gpu
