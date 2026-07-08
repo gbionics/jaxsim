@@ -245,7 +245,7 @@ class ContactModel(JaxsimDataclass):
     @property
     def _parameters_class(self) -> type[ContactsParams]:
         """
-        Return the class of the contact parameters.
+        The class of the contact parameters.
 
         Returns:
             The class of the contact parameters.

@@ -73,28 +73,28 @@ class KinDynParameters(JaxsimDataclass):
     @property
     def motion_subspaces(self) -> jtp.Matrix:
         r"""
-        Return the motion subspaces :math:`\mathbf{S}(s)` of the joints.
+        The motion subspaces :math:`\mathbf{S}(s)` of the joints.
         """
         return self._motion_subspaces.get()
 
     @property
     def parent_array(self) -> jtp.Vector:
         r"""
-        Return the parent array :math:`\lambda(i)` of the model.
+        The parent array :math:`\lambda(i)` of the model.
         """
         return self._parent_array.get()
 
     @property
     def support_body_array_bool(self) -> jtp.Matrix:
         r"""
-        Return the boolean support parent array :math:`\kappa_{b}(i)` of the model.
+        The boolean support parent array :math:`\kappa_{b}(i)` of the model.
         """
         return self._support_body_array_bool.get()
 
     @property
     def level_nodes(self) -> jtp.Matrix:
         r"""
-        Return the tree level nodes array of shape ``(n_levels, max_width)``.
+        The tree level nodes array of shape ``(n_levels, max_width)``.
         Each row contains the link indices at the corresponding depth level,
         padded with 0 for levels with fewer nodes than ``max_width``.
         """
@@ -103,7 +103,7 @@ class KinDynParameters(JaxsimDataclass):
     @property
     def level_mask(self) -> jtp.Matrix:
         r"""
-        Return the tree level mask of shape ``(n_levels, max_width)``.
+        The tree level mask of shape ``(n_levels, max_width)``.
         Each entry is ``True`` for real nodes and ``False`` for padding.
         """
         return self._level_mask.get()
@@ -873,7 +873,7 @@ class ContactParameters(JaxsimDataclass):
     @property
     def indices_of_enabled_collidable_points(self) -> npt.NDArray:
         """
-        Return the indices of the enabled collidable points.
+        The indices of the enabled collidable points.
         """
         return np.where(np.array(self.enabled))[0]
 

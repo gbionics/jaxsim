@@ -109,7 +109,7 @@ class RigidContacts(ContactModel):
 
     @property
     def solver_options(self) -> dict[str, Any]:
-        """Get the solver options as a dictionary."""
+        """The solver options as a dictionary."""
 
         return dict(
             zip(

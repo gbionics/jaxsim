@@ -75,7 +75,7 @@ class LinkDescription(JaxsimDataclass):
     @property
     def name_and_index(self) -> str:
         """
-        Get a formatted string with the link's name and index.
+        A formatted string with the link's name and index.
 
         Returns:
             str: The formatted string.

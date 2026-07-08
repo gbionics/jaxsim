@@ -196,7 +196,7 @@ class RelaxedRigidContacts(common.ContactModel):
 
     @property
     def solver_options(self) -> dict[str, Any]:
-        """Get the solver options."""
+        """The solver options."""
 
         return dict(
             zip(
