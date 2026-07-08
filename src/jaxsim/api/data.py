@@ -228,7 +228,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
     @property
     def joint_positions(self) -> jtp.Vector:
         """
-        Get the joint positions.
+        The joint positions.
 
         Returns:
             The joint positions.
@@ -238,7 +238,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
     @property
     def joint_velocities(self) -> jtp.Vector:
         """
-        Get the joint velocities.
+        The joint velocities.
 
         Returns:
             The joint velocities.
@@ -248,7 +248,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
     @property
     def base_quaternion(self) -> jtp.Vector:
         """
-        Get the base quaternion.
+        The base quaternion.
 
         Returns:
             The base quaternion.
@@ -258,7 +258,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
     @property
     def base_position(self) -> jtp.Vector:
         """
-        Get the base position.
+        The base position.
 
         Returns:
             The base position.
@@ -268,7 +268,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
     @property
     def base_orientation(self) -> jtp.Matrix:
         """
-        Get the base orientation.
+        The base orientation.
 
         Returns:
             The base orientation.
@@ -289,7 +289,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
     @property
     def base_velocity(self) -> jtp.Vector:
         """
-        Get the base 6D velocity.
+        The base 6D velocity.
 
         Returns:
             The base 6D velocity in the active representation.
@@ -315,7 +315,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
     @property
     def generalized_position(self) -> tuple[jtp.Matrix, jtp.Vector]:
         r"""
-        Get the generalized position
+        The generalized position
         :math:`\mathbf{q} = ({}^W \mathbf{H}_B, \mathbf{s}) \in \text{SO}(3) \times \mathbb{R}^n`.
 
         Returns:
@@ -327,7 +327,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
     @property
     def generalized_velocity(self) -> jtp.Vector:
         r"""
-        Get the generalized velocity.
+        The generalized velocity.
 
         :math:`\boldsymbol{\nu} = (\boldsymbol{v}_{W,B};\, \boldsymbol{\omega}_{W,B};\, \mathbf{s}) \in \mathbb{R}^{6+n}`
 
@@ -344,7 +344,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
     @property
     def base_transform(self) -> jtp.Matrix:
         """
-        Get the base transform.
+        The base transform.
 
         Returns:
             The base transform.

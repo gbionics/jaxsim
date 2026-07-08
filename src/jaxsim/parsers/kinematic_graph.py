@@ -98,21 +98,21 @@ class KinematicGraph(Sequence[LinkDescription]):
     @functools.cached_property
     def links_dict(self) -> dict[str, LinkDescription]:
         """
-        Get a dictionary of links indexed by their name.
+        A dictionary of links indexed by their name.
         """
         return {l.name: l for l in iter(self)}
 
     @functools.cached_property
     def frames_dict(self) -> dict[str, LinkDescription]:
         """
-        Get a dictionary of frames indexed by their name.
+        A dictionary of frames indexed by their name.
         """
         return {f.name: f for f in self.frames}
 
     @functools.cached_property
     def joints_dict(self) -> dict[str, JointDescription]:
         """
-        Get a dictionary of joints indexed by their name.
+        A dictionary of joints indexed by their name.
         """
         return {j.name: j for j in self.joints}
 
@@ -121,7 +121,7 @@ class KinematicGraph(Sequence[LinkDescription]):
         self,
     ) -> dict[tuple[str, str], JointDescription]:
         """
-        Get a dictionary of joints indexed by the tuple (parent, child) link names.
+        A dictionary of joints indexed by the tuple (parent, child) link names.
         """
         return {(j.parent.name, j.child.name): j for j in self.joints}
 
@@ -657,7 +657,7 @@ class KinematicGraph(Sequence[LinkDescription]):
     @property
     def joints_removed(self) -> list[JointDescription]:
         """
-        Get the list of joints removed during the graph reduction.
+        The list of joints removed during the graph reduction.
 
         Returns:
             The list of removed joints.
@@ -792,7 +792,7 @@ class KinematicGraphTransforms:
     @property
     def initial_joint_positions(self) -> npt.NDArray:
         """
-        Get the initial joint positions of the kinematic graph.
+        The initial joint positions of the kinematic graph.
         """
 
         return np.atleast_1d(

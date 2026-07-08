@@ -93,7 +93,7 @@ class JaxSimModel(JaxsimDataclass):
     @property
     def description(self) -> ModelDescription:
         """
-        Return the model description.
+        The model description.
         """
         return self._description.get()
 
