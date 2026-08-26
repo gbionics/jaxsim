@@ -120,3 +120,70 @@ def test_data_change_velocity_representation(
             data.base_velocity[3:6],
             data._base_angular_velocity,
         )
+
+
+def _one_joint_model_description(lower: float, upper: float) -> str:
+    """Build a two-link model whose only joint has the given position limits."""
+
+    inertial = (
+        "<inertial><mass>1.0</mass><inertia>"
+        "<ixx>0.1</ixx><ixy>0</ixy><ixz>0</ixz>"
+        "<iyy>0.1</iyy><iyz>0</iyz><izz>0.1</izz>"
+        "</inertia></inertial>"
+    )
+
+    return f"""<sdf version="1.7">
+      <model name="one_joint">
+        <link name="base">{inertial}</link>
+        <link name="arm"><pose>0 0 0.5 0 0 0</pose>{inertial}</link>
+        <joint name="shoulder" type="revolute">
+          <parent>base</parent>
+          <child>arm</child>
+          <axis>
+            <xyz>0 0 1</xyz>
+            <limit>
+              <lower>{lower}</lower>
+              <upper>{upper}</upper>
+              <effort>10</effort>
+              <velocity>10</velocity>
+            </limit>
+          </axis>
+        </joint>
+      </model>
+    </sdf>"""
+
+
+@pytest.mark.parametrize(
+    "lower, upper, expected_position",
+    [
+        # Zero is below the limits, so the joint starts at its lower limit
+        (0.5, 1.5, 0.5),
+        # Zero is above the limits, so the joint starts at its upper limit
+        (-1.5, -0.5, -0.5),
+        # Zero is a valid position, so the joint starts there as it always did
+        (-1.0, 1.0, 0.0),
+    ],
+)
+def test_data_default_joint_positions_are_within_limits(
+    lower: float,
+    upper: float,
+    expected_position: float,
+):
+
+    model = js.model.JaxSimModel.build_from_model_description(
+        model_description=_one_joint_model_description(lower, upper),
+        is_urdf=False,
+    )
+
+    # =====
+    # Tests
+    # =====
+
+    data = js.data.JaxSimModelData.build(model=model)
+
+    s_min, s_max = js.joint.position_limits(model=model)
+    assert bool(jnp.all(data.joint_positions >= s_min))
+    assert bool(jnp.all(data.joint_positions <= s_max))
+
+    # The default stays as close to the zero configuration as the joint allows
+    assert_allclose(data.joint_positions, jnp.array([expected_position]))
