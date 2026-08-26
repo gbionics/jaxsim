@@ -122,12 +122,22 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
             dtype=float,
         ).squeeze()
 
+        # The zero configuration is the neutral one for most joints, but it is not
+        # always inside their limits: a shoulder limited to [0.5, 1.5] would start
+        # out of range. Clipping keeps the default as close to zero as the joint
+        # allows, which lands on the limit nearest to it when zero is excluded.
+        default_joint_positions = jnp.clip(
+            jnp.zeros(model.dofs()),
+            model.kin_dyn_parameters.joint_parameters.position_limits_min,
+            model.kin_dyn_parameters.joint_parameters.position_limits_max,
+        )
+
         joint_positions = jnp.atleast_1d(
             jnp.array(
                 (
                     joint_positions
                     if joint_positions is not None
-                    else jnp.zeros(model.dofs())
+                    else default_joint_positions
                 ),
                 dtype=float,
             ).squeeze()
