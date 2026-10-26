@@ -2,7 +2,7 @@ import abc
 import contextlib
 import dataclasses
 import functools
-from collections.abc import Callable, Iterator, Sequence
+from collections.abc import Callable, Generator, Sequence
 from typing import Any, ClassVar
 
 import jax.flatten_util
@@ -26,7 +26,7 @@ class JaxsimDataclass(abc.ABC):
     __mutability__: ClassVar[Mutability] = Mutability.FROZEN
 
     @contextlib.contextmanager
-    def editable(self: Self, validate: bool = True) -> Iterator[Self]:
+    def editable(self: Self, validate: bool = True) -> Generator[Self]:
         """
         Context manager to operate on a mutable copy of the object.
 
@@ -53,7 +53,7 @@ class JaxsimDataclass(abc.ABC):
         self: Self,
         mutability: Mutability = Mutability.MUTABLE,
         restore_after_exception: bool = True,
-    ) -> Iterator[Self]:
+    ) -> Generator[Self]:
         """
         Context manager to temporarily change the mutability of the object.
 

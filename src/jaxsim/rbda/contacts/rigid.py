@@ -357,8 +357,8 @@ class RigidContacts(ContactModel):
         #      G x ≤ h
         #
         # TODO: add possibility to notify if the QP problem did not converge.
-        solution, _, _, _, converged, _ = qpax.solve_qp(  # noqa: RUF059
-            Q=Q, q=q, A=A, b=b, G=G, h=h_bounds, **self.solver_options
+        solution, _, _, _, converged, _ = (  # ruff: ignore[unused-unpacked-variable]
+            qpax.solve_qp(Q=Q, q=q, A=A, b=b, G=G, h=h_bounds, **self.solver_options)
         )
 
         # Reshape the optimized solution to be a matrix of 3D contact forces.

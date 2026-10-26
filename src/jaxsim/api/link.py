@@ -287,8 +287,8 @@ def jacobian(
         case VelRepr.Inertial:
             W_H_B = data._base_transform
             B_X_W = Adjoint.from_transform(transform=W_H_B, inverse=True)
-            B_J_WL_I = B_J_WL_W = B_J_WL_B @ jax.scipy.linalg.block_diag(  # noqa: F841
-                B_X_W, jnp.eye(model.dofs())
+            B_J_WL_I = B_J_WL_W = (  # ruff: ignore[unused-variable]
+                B_J_WL_B @ jax.scipy.linalg.block_diag(B_X_W, jnp.eye(model.dofs()))
             )
 
         case VelRepr.Body:
@@ -298,8 +298,8 @@ def jacobian(
             W_R_B = jaxsim.math.Quaternion.to_dcm(data.base_orientation)
             BW_H_B = jnp.eye(4).at[0:3, 0:3].set(W_R_B)
             B_X_BW = Adjoint.from_transform(transform=BW_H_B, inverse=True)
-            B_J_WL_I = B_J_WL_BW = B_J_WL_B @ jax.scipy.linalg.block_diag(  # noqa: F841
-                B_X_BW, jnp.eye(model.dofs())
+            B_J_WL_I = B_J_WL_BW = (  # ruff: ignore[unused-variable]
+                B_J_WL_B @ jax.scipy.linalg.block_diag(B_X_BW, jnp.eye(model.dofs()))
             )
 
         case _:
@@ -312,7 +312,7 @@ def jacobian(
         case VelRepr.Inertial:
             W_H_B = data._base_transform
             W_X_B = Adjoint.from_transform(transform=W_H_B)
-            O_J_WL_I = W_J_WL_I = W_X_B @ B_J_WL_I  # noqa: F841
+            O_J_WL_I = W_J_WL_I = W_X_B @ B_J_WL_I  # ruff: ignore[unused-variable]
 
         case VelRepr.Body:
             L_X_B = Adjoint.from_transform(transform=B_H_L, inverse=True)
