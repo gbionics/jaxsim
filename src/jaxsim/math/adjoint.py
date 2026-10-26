@@ -90,14 +90,14 @@ class Adjoint:
         A_o_B = translation.squeeze()
 
         if not inverse:
-            X = A_X_B = jnp.vstack(  # noqa: F841
+            X = A_X_B = jnp.vstack(  # ruff: ignore[unused-variable]
                 [
                     jnp.block([A_R_B, Skew.wedge(A_o_B) @ A_R_B]),
                     jnp.block([jnp.zeros(shape=(3, 3)), A_R_B]),
                 ]
             )
         else:
-            X = B_X_A = jnp.vstack(  # noqa: F841
+            X = B_X_A = jnp.vstack(  # ruff: ignore[unused-variable]
                 [
                     jnp.block([A_R_B.T, -A_R_B.T @ Skew.wedge(A_o_B)]),
                     jnp.block([jnp.zeros(shape=(3, 3)), A_R_B.T]),

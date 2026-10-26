@@ -96,7 +96,7 @@ def _get_default_logging_level() -> logging.LoggingLevel:
     # This is to avoid too verbose logging in non-editable installations.
     return (
         logging.LoggingLevel.INFO
-        if _is_editable()  # noqa: F821
+        if _is_editable()  # ruff: ignore[undefined-name]
         else logging.LoggingLevel.WARNING
     )
 

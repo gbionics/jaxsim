@@ -1654,8 +1654,8 @@ def forward_dynamics_aba(
     match data.velocity_representation:
         case VelRepr.Inertial:
             # In this case C=W
-            W_H_C = W_H_W = jnp.eye(4)  # noqa: F841
-            W_v_WC = W_v_WW = jnp.zeros(6)  # noqa: F841
+            W_H_C = W_H_W = jnp.eye(4)  # ruff: ignore[unused-variable]
+            W_v_WC = W_v_WW = jnp.zeros(6)  # ruff: ignore[unused-variable]
 
         case VelRepr.Body:
             # In this case C=B
@@ -1665,9 +1665,13 @@ def forward_dynamics_aba(
         case VelRepr.Mixed:
             # In this case C=B[W]
             W_H_B = data._base_transform
-            W_H_C = W_H_BW = W_H_B.at[0:3, 0:3].set(jnp.eye(3))  # noqa: F841
+            W_H_C = W_H_BW = W_H_B.at[0:3, 0:3].set(  # ruff: ignore[unused-variable]
+                jnp.eye(3)
+            )
             W_ṗ_B = data.base_velocity[0:3]
-            W_v_WC = W_v_W_BW = jnp.zeros(6).at[0:3].set(W_ṗ_B)  # noqa: F841
+            W_v_WC = W_v_W_BW = (  # ruff: ignore[unused-variable]
+                jnp.zeros(6).at[0:3].set(W_ṗ_B)
+            )
 
         case _:
             raise ValueError(data.velocity_representation)
@@ -2120,8 +2124,8 @@ def inverse_dynamics(
 
     match data.velocity_representation:
         case VelRepr.Inertial:
-            W_H_C = W_H_W = jnp.eye(4)  # noqa: F841
-            W_v_WC = W_v_WW = jnp.zeros(6)  # noqa: F841
+            W_H_C = W_H_W = jnp.eye(4)  # ruff: ignore[unused-variable]
+            W_v_WC = W_v_WW = jnp.zeros(6)  # ruff: ignore[unused-variable]
 
         case VelRepr.Body:
             W_H_C = W_H_B = data._base_transform
@@ -2130,9 +2134,13 @@ def inverse_dynamics(
 
         case VelRepr.Mixed:
             W_H_B = data._base_transform
-            W_H_C = W_H_BW = W_H_B.at[0:3, 0:3].set(jnp.eye(3))  # noqa: F841
+            W_H_C = W_H_BW = W_H_B.at[0:3, 0:3].set(  # ruff: ignore[unused-variable]
+                jnp.eye(3)
+            )
             W_ṗ_B = data.base_velocity[0:3]
-            W_v_WC = W_v_W_BW = jnp.zeros(6).at[0:3].set(W_ṗ_B)  # noqa: F841
+            W_v_WC = W_v_W_BW = (  # ruff: ignore[unused-variable]
+                jnp.zeros(6).at[0:3].set(W_ṗ_B)
+            )
 
         case _:
             raise ValueError(data.velocity_representation)
@@ -2532,15 +2540,15 @@ def link_bias_accelerations(
     # a simple C_X_W 6D transform.
     match data.velocity_representation:
         case VelRepr.Inertial:
-            W_H_C = W_H_W = jnp.eye(4)  # noqa: F841
-            W_v_WC = W_v_WW = jnp.zeros(6)  # noqa: F841
+            W_H_C = W_H_W = jnp.eye(4)  # ruff: ignore[unused-variable]
+            W_v_WC = W_v_WW = jnp.zeros(6)  # ruff: ignore[unused-variable]
             with data.switch_velocity_representation(VelRepr.Inertial):
                 C_v_WB = W_v_WB = data.base_velocity
 
         case VelRepr.Body:
             W_H_C = W_H_B
             with data.switch_velocity_representation(VelRepr.Inertial):
-                W_v_WC = W_v_WB = data.base_velocity  # noqa: F841
+                W_v_WC = W_v_WB = data.base_velocity  # ruff: ignore[unused-variable]
             with data.switch_velocity_representation(VelRepr.Body):
                 C_v_WB = B_v_WB = data.base_velocity
 
@@ -2551,9 +2559,9 @@ def link_bias_accelerations(
                 W_ṗ_B = data.base_velocity[0:3]
                 BW_v_W_BW = jnp.zeros(6).at[0:3].set(W_ṗ_B)
                 W_X_BW = jaxsim.math.Adjoint.from_transform(transform=W_H_BW)
-                W_v_WC = W_v_W_BW = W_X_BW @ BW_v_W_BW  # noqa: F841
+                W_v_WC = W_v_W_BW = W_X_BW @ BW_v_W_BW  # ruff: ignore[unused-variable]
             with data.switch_velocity_representation(VelRepr.Mixed):
-                C_v_WB = BW_v_WB = data.base_velocity  # noqa: F841
+                C_v_WB = BW_v_WB = data.base_velocity  # ruff: ignore[unused-variable]
 
         case _:
             raise ValueError(data.velocity_representation)
@@ -2663,10 +2671,10 @@ def link_bias_accelerations(
 
     match data.velocity_representation:
         case VelRepr.Body:
-            C_H_L = L_H_L = jnp.stack(  # noqa: F841
+            C_H_L = L_H_L = jnp.stack(  # ruff: ignore[unused-variable]
                 [jnp.eye(4)] * model.number_of_links()
             )
-            L_v_CL = L_v_LL = jnp.zeros(  # noqa: F841
+            L_v_CL = L_v_LL = jnp.zeros(  # ruff: ignore[unused-variable]
                 shape=(model.number_of_links(), 6)
             )
 
@@ -2678,7 +2686,7 @@ def link_bias_accelerations(
             W_H_L = data._link_transforms
             LW_H_L = jax.vmap(lambda W_H_L: W_H_L.at[0:3, 3].set(jnp.zeros(3)))(W_H_L)
             C_H_L = LW_H_L
-            L_v_CL = L_v_LW_L = jax.vmap(  # noqa: F841
+            L_v_CL = L_v_LW_L = jax.vmap(  # ruff: ignore[unused-variable]
                 lambda v: v.at[0:3].set(jnp.zeros(3))
             )(L_v_WL)
 
