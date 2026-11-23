@@ -58,13 +58,38 @@ def mujoco_data_from_jaxsim(
     # to the floating base, and the helper would raise an exception.
     if jaxsim_model.floating_base():
 
-        # Set the model position.
-        model_helper.set_base_position(position=np.array(jaxsim_data.base_position))
+        mj_base_link = model_helper.base_link()
 
-        # Set the model orientation.
-        model_helper.set_base_orientation(
-            orientation=np.array(jaxsim_data.base_orientation)
-        )
+        if mj_base_link == jaxsim_model.base_link():
+            # Set the model position.
+            model_helper.set_base_position(position=np.array(jaxsim_data.base_position))
+
+            # Set the model orientation.
+            model_helper.set_base_orientation(
+                orientation=np.array(jaxsim_data.base_orientation)
+            )
+        else:
+            W_H_B = (
+                js.link.transform(
+                    model=jaxsim_model,
+                    data=jaxsim_data,
+                    link_index=js.link.name_to_idx(
+                        model=jaxsim_model, link_name=mj_base_link
+                    ),
+                )
+                if mj_base_link in jaxsim_model.link_names()
+                else js.frame.transform(
+                    model=jaxsim_model,
+                    data=jaxsim_data,
+                    frame_index=js.frame.name_to_idx(
+                        model=jaxsim_model, frame_name=mj_base_link
+                    ),
+                )
+            )
+            model_helper.set_base_position(position=np.array(W_H_B[0:3, 3]))
+            model_helper.set_base_orientation(
+                orientation=np.array(W_H_B[0:3, 0:3]), dcm=True
+            )
 
     # Set the joint positions.
     if jaxsim_model.dofs() > 0:

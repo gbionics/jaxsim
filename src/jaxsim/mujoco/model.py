@@ -192,9 +192,9 @@ class MujocoModelHelper:
 
         return (
             (
-                np.reshape(self.data.xmat[0], newshape=(3, 3))
+                Rotation.from_quat(self.data.qpos[3:7], scalar_first=True).as_matrix()
                 if dcm
-                else self.data.xquat[0]
+                else self.data.qpos[3:7]
             )
             if self.is_floating_base()
             else self.body_orientation(body_name=self.base_link(), dcm=dcm)
@@ -229,20 +229,18 @@ class MujocoModelHelper:
             raise ValueError(f"Wrong orientation shape {orientation.shape}")
 
         def is_quaternion(Q):
-            return np.allclose(np.linalg.norm(Q), 1.0)
+            return np.allclose(np.linalg.norm(Q), 1.0, atol=1e-6)
 
         def is_dcm(R):
-            return np.allclose(np.linalg.det(R), 1.0) and np.allclose(
-                R.T @ R, np.eye(3)
+            return np.allclose(np.linalg.det(R), 1.0, atol=1e-6) and np.allclose(
+                R.T @ R, np.eye(3), atol=1e-6
             )
 
         if not (is_quaternion(orientation) if not dcm else is_dcm(orientation)):
             raise ValueError("The orientation is not a valid element of SO(3)")
 
         W_Q_B = (
-            Rotation.from_matrix(orientation).as_quat(
-                canonical=True, scalar_first=False
-            )
+            Rotation.from_matrix(orientation).as_quat(canonical=True, scalar_first=True)
             if dcm
             else orientation
         )
@@ -355,7 +353,9 @@ class MujocoModelHelper:
             raise ValueError(f"Body '{body_name}' not found")
 
         return (
-            self.data.body(body_name).xmat if dcm else self.data.body(body_name).xquat
+            self.data.body(body_name).xmat.reshape(3, 3)
+            if dcm
+            else self.data.body(body_name).xquat
         )
 
     # ======================
@@ -391,13 +391,13 @@ class MujocoModelHelper:
         if geometry_name not in self.geometry_names():
             raise ValueError(f"Geometry '{geometry_name}' not found")
 
-        R = np.reshape(self.data.geom(geometry_name).xmat, newshape=(3, 3))
+        R = self.data.geom(geometry_name).xmat.reshape(3, 3)
 
         if dcm:
             return R
 
-        q_xyzw = Rotation.from_matrix(R).as_quat(canonical=True, scalar_first=False)
-        return q_xyzw
+        q_wxyz = Rotation.from_matrix(R).as_quat(canonical=True, scalar_first=True)
+        return q_wxyz
 
     # ===============
     # Private methods

@@ -129,7 +129,9 @@ if __name__ == "__main__":
     # Load the URDF/SDF file and produce a MJCF string
     # ================================================
 
-    mjcf_string, assets = ModelToMjcf.convert(args.description)
+    mjcf_string, assets = ModelToMjcf.convert(
+        args.description, model_name=args.model_name
+    )
 
     if args.print:
         print(mjcf_string, flush=True)
