@@ -98,6 +98,7 @@ def build_kindyncomputations_from_jaxsim_model(
         vel_repr=data.velocity_representation,
         gravity=np.array([0, 0, model.gravity]),
         removed_joint_positions=removed_joint_positions,
+        base_link_name=model.base_link(),
     )
 
     # Copy the state of the JaxSim model.
@@ -152,6 +153,7 @@ class KinDynComputations:
         vel_repr: VelRepr = VelRepr.Inertial,
         gravity: npt.NDArray = np.array([0, 0, -10.0]),
         removed_joint_positions: dict[str, npt.NDArray | float | int] | None = None,
+        base_link_name: str | None = None,
     ) -> KinDynComputations:
 
         # Read the URDF description.
@@ -167,20 +169,32 @@ class KinDynComputations:
             else {}
         )
 
-        # Load the URDF description.
-        if not (
-            mdl_loader.loadModelFromString(urdf_string)
-            if considered_joints is None
-            else mdl_loader.loadReducedModelFromString(
-                urdf_string, considered_joints, removed_joint_positions
-            )
-        ):
+        # Load the full URDF description.
+        if not mdl_loader.loadModelFromString(urdf_string):
             raise RuntimeError("Failed to load URDF description")
+
+        idt_model = mdl_loader.model().copy()
+
+        if base_link_name is not None:
+            link_idx = idt_model.getLinkIndex(base_link_name)
+            if link_idx < 0:
+                raise ValueError(f"Base link '{base_link_name}' not found in model")
+            if not idt_model.setDefaultBaseLink(link_idx):
+                raise RuntimeError(
+                    f"Failed to set default base link to '{base_link_name}'"
+                )
+
+        if considered_joints is not None:
+            if not mdl_loader.loadReducedModelFromFullModel(
+                idt_model, considered_joints, removed_joint_positions
+            ):
+                raise RuntimeError("Failed to load reduced URDF description")
+            idt_model = mdl_loader.model()
 
         # Create KinDynComputations and insert the model.
         kindyn = idt.KinDynComputations()
 
-        if not kindyn.loadRobotModel(mdl_loader.model()):
+        if not kindyn.loadRobotModel(idt_model):
             raise RuntimeError("Failed to load model")
 
         vel_repr_to_idyntree = {
