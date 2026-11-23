@@ -531,7 +531,7 @@ def test_ad_integration(
     )
 
     # State in VelRepr.Inertial representation.
-    W_p_B = data.base_position
+    W_p_B = data.base_position.at[2].add(1.0)
     W_Q_B = data.base_orientation
     s = data.joint_positions
     W_v_WB = data.base_velocity
