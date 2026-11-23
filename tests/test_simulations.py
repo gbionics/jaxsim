@@ -219,6 +219,7 @@ def test_simulation_with_soft_contacts(
         model.kin_dyn_parameters.contact_parameters.enabled = tuple(
             enabled_collidable_points_mask.tolist()
         )
+        model.integrator = integrator
 
     assert np.sum(model.kin_dyn_parameters.contact_parameters.enabled) == 4
 
@@ -263,6 +264,7 @@ def test_simulation_with_rigid_contacts(
         model.kin_dyn_parameters.contact_parameters.enabled = tuple(
             enabled_collidable_points_mask.tolist()
         )
+        model.integrator = integrator
 
     assert np.sum(model.kin_dyn_parameters.contact_parameters.enabled) == 4
 
