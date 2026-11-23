@@ -219,6 +219,7 @@ def test_simulation_with_soft_contacts(
         model.kin_dyn_parameters.contact_parameters.enabled = tuple(
             enabled_collidable_points_mask.tolist()
         )
+        model.integrator = integrator
 
     assert np.sum(model.kin_dyn_parameters.contact_parameters.enabled) == 4
 
@@ -252,9 +253,7 @@ def test_simulation_with_rigid_contacts(
 
         # In order to achieve almost no penetration, we need to use a fairly large
         # Baumgarte stabilization term.
-        model.contact_model = jaxsim.rbda.contacts.RigidContacts.build(
-            solver_options={"solver_tol": 1e-3}
-        )
+        model.contact_model = jaxsim.rbda.contacts.RigidContacts.build()
         model.contact_params = model.contact_model._parameters_class(K=1e5)
 
         # Enable a subset of the collidable points.
@@ -265,6 +264,7 @@ def test_simulation_with_rigid_contacts(
         model.kin_dyn_parameters.contact_parameters.enabled = tuple(
             enabled_collidable_points_mask.tolist()
         )
+        model.integrator = integrator
 
     assert np.sum(model.kin_dyn_parameters.contact_parameters.enabled) == 4
 

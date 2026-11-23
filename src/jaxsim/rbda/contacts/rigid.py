@@ -104,7 +104,7 @@ class RigidContacts(ContactModel):
         default=("solver_tol",), kw_only=True
     )
     _solver_options_values: jax_dataclasses.Static[tuple[Any, ...]] = dataclasses.field(
-        default=(1e-3,), kw_only=True
+        default=(1e-5,), kw_only=True
     )
 
     @property
