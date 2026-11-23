@@ -54,12 +54,6 @@ class JointModel(JaxsimDataclass):
             The joint model of the considered model description.
         """
 
-        # The link index is equal to its body index: [0, number_of_bodies - 1].
-        ordered_links = sorted(
-            list(description.links_dict.values()),
-            key=lambda l: l.index,
-        )
-
         # Note: the joint index is equal to its child link index, therefore it
         # starts from 1.
         ordered_joints = sorted(
@@ -75,12 +69,9 @@ class JointModel(JaxsimDataclass):
         # between the world frame W and the base link B.
         λ_H_pre = λ_H_pre.at[0].set(jnp.eye(4))
 
-        # Initialize the successor-to-child transform of the joint between the
-        # world frame W and the base link B.
-        # We store here the optional transform between the root frame of the model
-        # and the base link frame (this is needed only if the pose of the link frame
-        # w.r.t. the implicit __model__ SDF frame is not the identity).
-        suc_H_i = suc_H_i.at[0].set(ordered_links[0].pose)
+        # Initialize an identical successor-to-child transform for the joint
+        # between the world frame W and the base link B.
+        suc_H_i = suc_H_i.at[0].set(jnp.eye(4))
 
         # Create the object to compute forward kinematics.
         fk = KinematicGraphTransforms(graph=description)

@@ -143,3 +143,25 @@ def test_data_change_velocity_representation(
             data.base_velocity[3:6],
             data._base_angular_velocity,
         )
+
+
+def test_fixed_base_root_transform(
+    jaxsim_model_single_pendulum: js.model.JaxSimModel,
+):
+
+    model = jaxsim_model_single_pendulum
+    data = js.data.JaxSimModelData.build(model=model)
+
+    kin_dyn = utils.build_kindyncomputations_from_jaxsim_model(model=model, data=data)
+
+    W_H_LL = js.model.forward_kinematics(model=model, data=data)
+
+    assert_allclose(data.base_position, jnp.array([0.0, 0.0, 2.15 / 2]))
+    assert_allclose(data.base_transform, W_H_LL[0])
+
+    for W_H_L, link_name in zip(W_H_LL, model.link_names(), strict=True):
+        assert_allclose(
+            W_H_L,
+            kin_dyn.frame_transform(frame_name=link_name),
+            err_msg=f"Mismatch in {link_name}",
+        )

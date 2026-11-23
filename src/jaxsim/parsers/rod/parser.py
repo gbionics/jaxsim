@@ -91,17 +91,6 @@ def extract_model_data(
     # Log detected base link.
     logging.debug(msg=f"Considering '{sdf_model.get_canonical_link()}' as base link")
 
-    # Pose of the model
-    if sdf_model.pose is None:
-        model_pose = kinematic_graph.RootPose()
-
-    else:
-        W_H_M = sdf_model.pose.transform()
-        model_pose = kinematic_graph.RootPose(
-            root_position=W_H_M[0:3, 3],
-            root_quaternion=Quaternion.from_dcm(dcm=W_H_M[0:3, 0:3]),
-        )
-
     # ===========
     # Parse links
     # ===========
@@ -186,15 +175,30 @@ def extract_model_data(
 
         base_link_name = joints_with_world_parent[0].child.name
 
-        msg = "Combining the pose of base link '{}' with the pose of joint '{}'"
-        logging.debug(msg.format(base_link_name, joints_with_world_parent[0].name))
+        if base_link_name != sdf_model.get_canonical_link():
+            msg = "Combining the pose of base link '{}' with the pose of joint '{}'"
+            logging.debug(msg.format(base_link_name, joints_with_world_parent[0].name))
 
-        # Combine the pose of the base link (child of the found fixed joint)
-        # with the pose of the fixed joint connecting with the world.
-        # Note: we assume it's a fixed joint and ignore any joint angle.
-        links_dict[base_link_name].mutable(validate=False).pose = (
-            joints_with_world_parent[0].pose @ links_dict[base_link_name].pose
-        )
+            # Combine the pose of the base link (child of the found fixed joint)
+            # with the pose of the fixed joint connecting with the world.
+            # Note: when base_link_name == sdf_model.get_canonical_link(),
+            # switch_frame_convention(Urdf) has already resolved the base link pose
+            # relative to "world".
+            links_dict[base_link_name].mutable(validate=False).pose = (
+                joints_with_world_parent[0].pose @ links_dict[base_link_name].pose
+            )
+
+        W_H_B = links_dict[base_link_name].pose
+
+    else:
+        base_link_name = sdf_model.get_canonical_link()
+        W_H_M = sdf_model.pose.transform() if sdf_model.pose is not None else np.eye(4)
+        W_H_B = W_H_M @ links_dict[base_link_name].pose
+
+    model_pose = kinematic_graph.RootPose(
+        root_position=W_H_B[0:3, 3],
+        root_quaternion=Quaternion.from_dcm(dcm=W_H_B[0:3, 0:3]),
+    )
 
     # ============
     # Parse joints
@@ -363,7 +367,7 @@ def extract_model_data(
         frame_descriptions=frames,
         collision_shapes=collisions,
         fixed_base=sdf_model.is_fixed_base(),
-        base_link_name=sdf_model.get_canonical_link(),
+        base_link_name=base_link_name,
         model_pose=model_pose,
         sdf_model=sdf_model,
     )
