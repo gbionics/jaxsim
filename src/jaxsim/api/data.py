@@ -127,7 +127,10 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
                 (
                     joint_positions
                     if joint_positions is not None
-                    else jnp.zeros(model.dofs())
+                    else jnp.clip(
+                        jnp.zeros(model.dofs()),
+                        *js.joint.position_limits(model=model),
+                    )
                 ),
                 dtype=float,
             ).squeeze()

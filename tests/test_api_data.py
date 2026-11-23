@@ -20,6 +20,29 @@ def test_data_valid(
 
     assert data.valid(model=model)
 
+    if model.dofs() > 0:
+        s_min, s_max = js.joint.position_limits(model=model)
+        assert jnp.all(data.joint_positions >= s_min)
+        assert jnp.all(data.joint_positions <= s_max)
+
+
+def test_default_joint_positions_within_limits(
+    jaxsim_model_double_pendulum: js.model.JaxSimModel,
+):
+
+    model = jaxsim_model_double_pendulum
+
+    with model.editable() as model:
+        model.kin_dyn_parameters.joint_parameters.position_limits_min = jnp.array(
+            [0.2, -1.0]
+        )
+        model.kin_dyn_parameters.joint_parameters.position_limits_max = jnp.array(
+            [1.0, -0.2]
+        )
+
+    data = js.data.JaxSimModelData.build(model=model)
+    assert_allclose(data.joint_positions, jnp.array([0.2, -0.2]))
+
 
 def test_data_switch_velocity_representation(
     jaxsim_models_types: js.model.JaxSimModel,
