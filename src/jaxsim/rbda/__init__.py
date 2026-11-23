@@ -2,6 +2,7 @@ from . import actuation, contacts
 from .aba import aba
 from .aba_parallel import aba_parallel
 from .collidable_points import collidable_points_pos_vel
+from .coriolis import coriolis
 from .crba import crba
 from .forward_kinematics import forward_kinematics_model
 from .forward_kinematics_parallel import forward_kinematics_model_parallel
