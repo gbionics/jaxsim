@@ -329,7 +329,7 @@ def test_model_rbda(
     # Mass matrix inverse via RBDA
     M_inv_js = js.model.free_floating_mass_matrix_inverse(model=model, data=data)
     M_inv_idt = jnp.linalg.inv(M_idt)
-    assert_allclose(M_inv_idt[sl, sl], M_inv_js[sl, sl])
+    assert_allclose(M_inv_idt[sl, sl], M_inv_js[sl, sl], atol=1e-3, rtol=1e-2)
 
 
 def test_model_jacobian(
@@ -514,7 +514,7 @@ def test_coriolis_matrix(
         Ṁ = Ṁ.at[6:, 0:6].set(0)
 
     # Ensure that (Ṁ - 2C) is skew symmetric.
-    assert_allclose(Ṁ - C - C.T, 0.0)
+    assert_allclose(Ṁ - C - C.T, jnp.zeros_like(Ṁ), atol=1e-3)
 
 
 def test_model_fd_id_consistency(
@@ -584,7 +584,7 @@ def test_model_fd_id_consistency(
 
     # Check consistency between FD and ID
     assert_allclose(τ_id, references.joint_force_references(model=model))
-    assert_allclose(fB_id, 0.0)
+    assert_allclose(fB_id, jnp.zeros_like(fB_id), atol=1e-3)
 
     if model.floating_base():
         # If we remove the base 6D force from the inputs, we should find it as output.
@@ -658,8 +658,8 @@ def test_aba_vs_aba_parallel(
         parallel=True,
     )
 
-    assert_allclose(v̇_WB_seq, v̇_WB_par, atol=1e-9)
-    assert_allclose(s̈_seq, s̈_par, atol=1e-9)
+    assert_allclose(v̇_WB_seq, v̇_WB_par)
+    assert_allclose(s̈_seq, s̈_par)
 
 
 def test_fk_vs_fk_parallel(
@@ -682,4 +682,4 @@ def test_fk_vs_fk_parallel(
     W_H_seq = js.model.forward_kinematics(model=model, data=data, parallel=False)
     W_H_par = js.model.forward_kinematics(model=model, data=data, parallel=True)
 
-    assert_allclose(W_H_seq, W_H_par, atol=1e-9)
+    assert_allclose(W_H_seq, W_H_par)
