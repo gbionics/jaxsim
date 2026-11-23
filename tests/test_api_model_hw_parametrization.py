@@ -359,6 +359,7 @@ def test_hw_parameters_optimization(jaxsim_model_garpez: js.model.JaxSimModel):
     )
 
     # Define the loss function.
+    @jax.jit
     def loss(scaling_factors):
         # Update the model with the new hardware parameters.
         updated_model = js.model.update_hw_parameters(
@@ -381,7 +382,7 @@ def test_hw_parameters_optimization(jaxsim_model_garpez: js.model.JaxSimModel):
         return (link4_height - target_height) ** 2
 
     # Compute the gradient of the loss function with respect to the scaling factors.
-    loss_grad = jax.grad(loss)
+    loss_grad = jax.jit(jax.grad(loss))
 
     # Perform gradient descent.
     alpha = 0.01  # Learning rate.
