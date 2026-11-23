@@ -139,9 +139,9 @@ class HashedNumpyArray:
             The hash of the array.
         """
 
-        array = np.array(array).flatten()
+        array = np.array(array, dtype=float).flatten()
 
-        array = np.where(array == np.nan, hash(np.nan), array)
+        array = np.where(np.isnan(array), hash(np.nan), array)
         array = np.where(array == np.inf, hash(np.inf), array)
         array = np.where(array == -np.inf, hash(-np.inf), array)
 
