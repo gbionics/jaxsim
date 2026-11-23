@@ -308,21 +308,28 @@ class KinDynParameters(JaxsimDataclass):
             jnp.arange(start=0, stop=len(ordered_links))
         )
 
-        def motion_subspace(joint_type: int, axis: npt.ArrayLike) -> npt.ArrayLike:
+        def motion_subspace(
+            joint_type: int, axis: npt.ArrayLike, suc_H_i: npt.ArrayLike
+        ) -> npt.ArrayLike:
             S = {
                 JointType.Fixed: np.zeros(shape=(6, 1)),
                 JointType.Revolute: np.vstack(np.hstack([np.zeros(3), axis.axis])),
                 JointType.Prismatic: np.vstack(np.hstack([axis.axis, np.zeros(3)])),
             }
 
-            return S[joint_type]
+            return (
+                Adjoint.from_transform(transform=suc_H_i, inverse=True) @ S[joint_type]
+            )
 
         S_J = jnp.array(
             list(
                 starmap(
                     motion_subspace,
                     zip(
-                        joint_model.joint_types[1:], joint_model.joint_axis, strict=True
+                        joint_model.joint_types[1:],
+                        joint_model.joint_axis,
+                        joint_model.suc_H_i[1:],
+                        strict=True,
                     ),
                 )
             )
@@ -373,12 +380,14 @@ class KinDynParameters(JaxsimDataclass):
     def __hash__(self) -> int:
         return hash(
             (
+                hash(self.link_names),
                 hash(self.number_of_links()),
                 hash(self.number_of_joints()),
                 hash(self.frame_parameters.name),
                 hash(self.frame_parameters.body),
                 hash(self._parent_array),
                 hash(self._support_body_array_bool),
+                hash(self._motion_subspaces),
             )
         )
 

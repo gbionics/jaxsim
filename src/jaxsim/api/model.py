@@ -140,6 +140,7 @@ class JaxSimModel(JaxsimDataclass):
         integrator: IntegratorType | None = None,
         is_urdf: bool | None = None,
         considered_joints: Sequence[str] | None = None,
+        base_link_name: str | None = None,
         gravity: jtp.FloatLike = jaxsim.math.STANDARD_GRAVITY,
         constraints: jaxsim.rbda.kinematic_constraints.ConstraintMap | None = None,
         parametrized_links: tuple[str, ...] | None = None,
@@ -168,6 +169,9 @@ class JaxSimModel(JaxsimDataclass):
                 This is usually automatically inferred.
             considered_joints:
                 The list of joints to consider. If None, all joints are considered.
+            base_link_name:
+                The optional name of the base link. If None, the canonical link
+                from the model description is used.
             gravity: The gravity constant. Normally passed as a positive value.
             constraints:
                 An object of type ConstraintMap containing the kinematic constraints to consider. If None, no constraints are considered.
@@ -184,7 +188,9 @@ class JaxSimModel(JaxsimDataclass):
         # Parse the input resource (either a path to file or a string with the URDF/SDF)
         # and build the -intermediate- model description.
         intermediate_description = jaxsim.parsers.rod.build_model_description(
-            model_description=model_description, is_urdf=is_urdf
+            model_description=model_description,
+            is_urdf=is_urdf,
+            base_link_name=base_link_name,
         )
 
         # Lump links together if not all joints are considered.

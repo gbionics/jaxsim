@@ -263,7 +263,7 @@ class KinematicGraph(Sequence[LinkDescription]):
 
         # Create a dictionary that maps the link name to the link, for easy retrieval.
         links_dict: dict[str, LinkDescription] = {
-            l.name: l.mutable(validate=False) for l in links
+            l.name: copy.copy(l).mutable(validate=False) for l in links
         }
 
         # Create an empty list of frames if not provided.
@@ -291,6 +291,46 @@ class KinematicGraph(Sequence[LinkDescription]):
         for link in links_dict.values():
             link.children = tuple()
 
+        # If root_link_name is not the root of the input joints, reverse the joints
+        # along the path from the original root to root_link_name.
+        joints = [copy.copy(j) for j in joints]
+        incoming_joint_map = {j.child.name: j for j in joints}
+        joints_to_reverse: list[JointDescription] = []
+        curr_link_name = root_link_name
+        visited_links = {curr_link_name}
+
+        while curr_link_name in incoming_joint_map:
+            joint = incoming_joint_map[curr_link_name]
+            joints_to_reverse.append(joint)
+            curr_link_name = joint.parent.name
+            if curr_link_name in visited_links:
+                break
+            visited_links.add(curr_link_name)
+
+        if joints_to_reverse:
+            for joint in reversed(joints_to_reverse):
+                old_parent = links_dict[joint.parent.name]
+                old_child = links_dict[joint.child.name]
+                old_joint_pose = np.array(joint.pose)
+                old_child_pose = np.array(old_child.pose)
+
+                with joint.mutable_context(Mutability.MUTABLE_NO_VALIDATION):
+                    joint.parent = old_child
+                    joint.child = old_parent
+                    joint.pose = np.array(
+                        jaxsim.math.Transform.inverse(old_child_pose), dtype=float
+                    )
+                    if joint.axis is not None:
+                        joint.axis = -np.array(joint.axis, dtype=float)
+
+                old_parent.mutable(validate=False).pose = np.array(
+                    jaxsim.math.Transform.inverse(old_joint_pose), dtype=float
+                )
+                old_child.mutable(validate=False)
+
+            links_dict[root_link_name].pose = np.eye(4)
+            links_dict[root_link_name].parent_name = None
+
         # Couple links and joints creating the kinematic graph.
         for joint in joints:
 
@@ -300,6 +340,12 @@ class KinematicGraph(Sequence[LinkDescription]):
 
             assert child_link.name == joint.child.name
             assert parent_link.name == joint.parent.name
+
+            with joint.mutable_context(Mutability.MUTABLE_NO_VALIDATION):
+                joint.parent = parent_link
+                joint.child = child_link
+            parent_link.mutable(validate=False)
+            child_link.mutable(validate=False)
 
             # Assign link's parent.
             child_link.parent_name = parent_link.name
@@ -349,7 +395,9 @@ class KinematicGraph(Sequence[LinkDescription]):
             logging.debug(msg=msg.format(joint.name))
 
         # Collect all the links that are not part of the kinematic graph.
-        unconnected_links = [l for l in links if l.name not in all_link_names_in_graph]
+        unconnected_links = [
+            links_dict[l.name] for l in links if l.name not in all_link_names_in_graph
+        ]
 
         # Update the unconnected links by removing their children. The other properties
         # are left untouched, it's caller responsibility to post-process them if needed.

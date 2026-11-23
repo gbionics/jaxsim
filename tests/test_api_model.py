@@ -685,3 +685,66 @@ def test_fk_vs_fk_parallel(
     W_H_par = js.model.forward_kinematics(model=model, data=data, parallel=True)
 
     assert_allclose(W_H_seq, W_H_par)
+
+
+def test_model_custom_base_link(
+    ergocub_model_description_path: pathlib.Path,
+    velocity_representation: VelRepr,
+    prng_key: jax.Array,
+):
+
+    for base_link_name in ("l_ankle_2", "head", "l_foot_front"):
+
+        model = js.model.JaxSimModel.build_from_model_description(
+            model_description=ergocub_model_description_path,
+            base_link_name=base_link_name,
+        )
+
+        assert model.base_link() == base_link_name
+        assert all(
+            j.parent is model.description.links_dict[j.parent.name]
+            and j.child is model.description.links_dict[j.child.name]
+            for j in model.description.joints_dict.values()
+        )
+
+        _, subkey = jax.random.split(prng_key, num=2)
+        data = js.data.random_model_data(
+            model=model,
+            key=subkey,
+            velocity_representation=velocity_representation,
+        )
+
+        kin_dyn = utils.build_kindyncomputations_from_jaxsim_model(
+            model=model, data=data
+        )
+
+        assert_allclose(js.model.total_mass(model=model), kin_dyn.total_mass())
+        assert_allclose(
+            js.com.com_position(model=model, data=data), kin_dyn.com_position()
+        )
+        assert_allclose(
+            js.model.free_floating_mass_matrix(model=model, data=data),
+            kin_dyn.mass_matrix(),
+        )
+        assert_allclose(
+            js.model.free_floating_bias_forces(model=model, data=data),
+            kin_dyn.bias_forces(),
+            atol=1e-3,
+        )
+
+        W_H_L_all = js.model.forward_kinematics(model=model, data=data)
+        J_WL_all = js.model.generalized_free_floating_jacobian(
+            model=model, data=data, output_vel_repr=velocity_representation
+        )
+
+        for idx, link_name in enumerate(model.link_names()):
+            assert_allclose(
+                W_H_L_all[idx],
+                kin_dyn.frame_transform(frame_name=link_name),
+                err_msg=f"Mismatch in link transform for {link_name}",
+            )
+            assert_allclose(
+                J_WL_all[idx],
+                kin_dyn.jacobian_frame(frame_name=link_name),
+                err_msg=f"Mismatch in link Jacobian for {link_name}",
+            )
