@@ -202,7 +202,7 @@ def rk4fast_integration(
             )
 
             W_ṗ_B, W_Q̇_B, ṡ = js.ode.system_position_dynamics(
-                data=data,
+                data=data_ti,
                 baumgarte_quaternion_regularization=1.0,
             )
 
