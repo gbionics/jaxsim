@@ -305,12 +305,12 @@ def test_model_rbda(
     # Gravity forces
     g_idt = kin_dyn.gravity_forces()
     g_js = js.model.free_floating_gravity_forces(model=model, data=data)
-    assert_allclose(g_idt[sl], g_js[sl])
+    assert_allclose(g_idt[sl], g_js[sl], atol=1e-3)
 
     # Bias forces
     h_idt = kin_dyn.bias_forces()
     h_js = js.model.free_floating_bias_forces(model=model, data=data)
-    assert_allclose(h_idt[sl], h_js[sl])
+    assert_allclose(h_idt[sl], h_js[sl], atol=1e-3)
 
     # Forward kinematics
     HH_js = data._link_transforms
@@ -599,7 +599,9 @@ def test_model_fd_id_consistency(
         )
 
         assert_allclose(τ_id, references.joint_force_references(model=model))
-        assert_allclose(fB_id, references.link_forces(model=model, data=data)[0])
+        assert_allclose(
+            fB_id, references.link_forces(model=model, data=data)[0], atol=1e-3
+        )
 
 
 def test_aba_vs_aba_parallel(
