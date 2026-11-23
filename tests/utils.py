@@ -4,6 +4,7 @@ import dataclasses
 import pathlib
 
 import idyntree.bindings as idt
+import jax
 import numpy as np
 import numpy.typing as npt
 
@@ -11,11 +12,16 @@ import jaxsim.api as js
 from jaxsim import VelRepr
 
 
-def assert_allclose(actual, desired, rtol=1e-7, atol=1e-9, err_msg=""):
+def assert_allclose(actual, desired, rtol=None, atol=None, err_msg=""):
     """
     Assert allclose with custom default tolerances.
     Normalizes only signed zeros using np.copysign.
     """
+    if rtol is None:
+        rtol = 1e-7 if jax.config.jax_enable_x64 else 1e-3
+    if atol is None:
+        atol = 1e-9 if jax.config.jax_enable_x64 else 1e-4
+
     actual = np.asarray(actual, dtype=float)
     desired = np.asarray(desired, dtype=float)
 

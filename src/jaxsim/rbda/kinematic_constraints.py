@@ -77,14 +77,13 @@ def _compute_constraint_jacobians_batched(
         matrices.
     """
 
-    with data.switch_velocity_representation(VelRepr.Body):
-        # Doubly-left free-floating Jacobian.
-        L_J_WL_B = js.model.generalized_free_floating_jacobian(
-            model=model, data=data, output_vel_repr=VelRepr.Body
-        )
+    # Doubly-left free-floating Jacobian.
+    L_J_WL = js.model.generalized_free_floating_jacobian(
+        model=model, data=data, output_vel_repr=VelRepr.Body
+    )
 
-        # Link transforms
-        W_H_L = data._link_transforms
+    # Link transforms
+    W_H_L = data._link_transforms
 
     def compute_frame_jacobian_mixed(L_J_WL, W_H_L, W_H_F, parent_link_index):
         """Compute the jacobian of a frame in mixed representation."""
@@ -116,7 +115,7 @@ def _compute_constraint_jacobians_batched(
 
     # Vectorize the computation of constraint Jacobians
     constraint_jacobians = jax.vmap(compute_constraint_jacobian, in_axes=(None, 0, 0))(
-        L_J_WL_B, W_H_constraint_pairs, constraints
+        L_J_WL, W_H_constraint_pairs, constraints
     )
 
     return constraint_jacobians
@@ -160,7 +159,7 @@ def _compute_constraint_baumgarte_term(
     vel_error = J_constr @ nu
     position_error = W_p_F1 - W_p_F2
     R_error = W_R_F2.T @ W_R_F1
-    orientation_error = Rotation.log_vee(R_error)
+    orientation_error = W_R_F2 @ Rotation.log_vee(R_error)
 
     baumgarte_term = (
         K_P * jnp.concatenate([position_error, orientation_error]) + K_D * vel_error
