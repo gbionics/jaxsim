@@ -376,6 +376,7 @@ def extract_model_data(
 def build_model_description(
     model_description: pathlib.Path | str | rod.Model,
     is_urdf: bool | None = None,
+    base_link_name: str | None = None,
 ) -> descriptions.ModelDescription:
     """
     Build a model description from an SDF/URDF resource.
@@ -385,6 +386,9 @@ def build_model_description(
           or a pre-parsed/pre-built rod model.
         is_urdf: Whether the force parsing the resource as a URDF file. Automatically
             detected if not provided.
+        base_link_name:
+            The optional name of the base link (root of the kinematic tree). If None,
+            the canonical link detected from the model description is used.
 
     Returns:
         The parsed model description.
@@ -409,7 +413,9 @@ def build_model_description(
         frames=sdf_data.frame_descriptions,
         collisions=sdf_data.collision_shapes,
         fixed_base=sdf_data.fixed_base,
-        base_link_name=sdf_data.base_link_name,
+        base_link_name=(
+            base_link_name if base_link_name is not None else sdf_data.base_link_name
+        ),
         model_pose=sdf_data.model_pose,
         considered_joints=[
             j.name
