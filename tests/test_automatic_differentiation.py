@@ -301,6 +301,40 @@ def test_ad_crba(
     )
 
 
+def test_ad_coriolis(
+    jaxsim_models_types: js.model.JaxSimModel,
+    prng_key: jax.Array,
+):
+
+    model = jaxsim_models_types
+
+    _, subkey = jax.random.split(prng_key, num=2)
+    data, _ = get_random_data_and_references(
+        model=model, velocity_representation=VelRepr.Body, key=subkey
+    )
+
+    s = data.joint_positions
+    ṡ = data.joint_velocities
+    B_v_WB = data.base_velocity
+
+    coriolis = lambda s, ṡ, B_v_WB: jaxsim.rbda.coriolis(
+        model=model,
+        joint_positions=s,
+        joint_velocities=ṡ,
+        base_linear_velocity=B_v_WB[0:3],
+        base_angular_velocity=B_v_WB[3:6],
+    )
+
+    check_grads(
+        f=coriolis,
+        args=(s, ṡ, B_v_WB),
+        order=AD_ORDER,
+        modes=["rev", "fwd"],
+        eps=ε,
+        rtol=None if jax.config.jax_enable_x64 else 1e-2,
+    )
+
+
 def test_ad_fk(
     jaxsim_models_types: js.model.JaxSimModel,
     prng_key: jax.Array,

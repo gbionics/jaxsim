@@ -429,6 +429,31 @@ def test_coriolis_matrix(
 
     assert_allclose(C @ I_ν, Cν)
 
+    if velocity_representation == VelRepr.Body:
+        L_J_WL_B = js.model.generalized_free_floating_jacobian(model=model, data=data)
+        L_J̇_WL_B = js.model.generalized_free_floating_jacobian_derivative(
+            model=model, data=data
+        )
+        L_M_L = js.model.link_spatial_inertia_matrices(model=model)
+        L_v_WL = jax.vmap(lambda J: J @ I_ν)(L_J_WL_B)
+
+        C_B_links = jax.vmap(
+            lambda M, v, J, J̇: J.T
+            @ (
+                (jaxsim.math.Cross.vx_star(v) @ M + M @ jaxsim.math.Cross.vx(v)) @ J
+                + M @ J̇
+            )
+        )(L_M_L, L_v_WL, L_J_WL_B, L_J̇_WL_B)
+
+        if model.floating_base():
+            C_B_ref = C_B_links.sum(axis=0)
+        else:
+            C_B_ref = C_B_links[1:].sum(axis=0)
+            C_B_ref = C_B_ref.at[0:6, 6:].set(0.0)
+            C_B_ref = C_B_ref.at[6:, 0:6].set(0.0)
+
+        assert_allclose(C, C_B_ref)
+
     # Compute the free-floating mass matrix.
     # This function will be used to compute the Ṁ with AD.
     # Given q, computing Ṁ by AD-ing this function should work out-of-the-box with
