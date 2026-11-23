@@ -95,7 +95,11 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
         """
 
         base_position = jnp.array(
-            base_position if base_position is not None else jnp.zeros(3),
+            (
+                base_position
+                if base_position is not None
+                else model.description.root_pose.root_position
+            ),
             dtype=float,
         ).squeeze()
 
@@ -103,7 +107,7 @@ class JaxSimModelData(common.ModelDataWithVelocityRepresentation):
             (
                 base_quaternion
                 if base_quaternion is not None
-                else jnp.array([1.0, 0, 0, 0])
+                else model.description.root_pose.root_quaternion
             ),
             dtype=float,
         ).squeeze()
