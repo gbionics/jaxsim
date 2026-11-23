@@ -73,6 +73,7 @@ class ModelToMjcf:
     def convert(
         model: str | pathlib.Path | rod.Model,
         considered_joints: list[str] | None = None,
+        model_name: str | None = None,
         plane_normal: tuple[float, float, float] = (0, 0, 1),
         heightmap: bool | None = None,
         heightmap_samples_xy: tuple[int, int] = (101, 101),
@@ -84,6 +85,7 @@ class ModelToMjcf:
         Args:
             model: The URDF/SDF file or ROD model to convert.
             considered_joints: The list of joint names to consider in the conversion.
+            model_name: The name of the model to convert.
             plane_normal: The normal vector of the plane.
             heightmap: Whether to generate a heightmap.
             heightmap_samples_xy: The number of points in the heightmap grid.
@@ -101,7 +103,7 @@ class ModelToMjcf:
                 rod_model = load_rod_model(
                     model_description=model,
                     is_urdf=None,
-                    model_name=None,
+                    model_name=model_name,
                 )
             case _:
                 raise TypeError(f"Unsupported type for 'model': {type(model)}")
