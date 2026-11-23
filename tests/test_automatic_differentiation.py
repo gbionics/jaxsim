@@ -20,8 +20,8 @@ from .utils import assert_allclose
 # CI tests take too long. Therefore, we only check first-order derivatives.
 AD_ORDER = os.environ.get("JAXSIM_TEST_AD_ORDER", 1)
 
-# Define the step size used to compute finite differences depending on the
-# floating point resolution.
+# Define the step size and tolerances used to compute finite differences
+# depending on the floating point resolution.
 ε = float(
     os.environ.get(
         "JAXSIM_TEST_FD_STEP_SIZE",
@@ -32,6 +32,8 @@ AD_ORDER = os.environ.get("JAXSIM_TEST_AD_ORDER", 1)
         ),
     )
 )
+ATOL = None if jax.config.jax_enable_x64 else 1e-2
+RTOL = None if jax.config.jax_enable_x64 else 2e-2
 
 
 def get_random_data_and_references(
@@ -130,6 +132,8 @@ def test_ad_aba(
         order=AD_ORDER,
         modes=["rev", "fwd"],
         eps=ε,
+        atol=ATOL,
+        rtol=RTOL,
     )
 
 
@@ -219,6 +223,8 @@ def test_ad_aba_parallel(
         order=AD_ORDER,
         modes=["rev", "fwd"],
         eps=ε,
+        atol=ATOL,
+        rtol=RTOL,
     )
 
 
@@ -288,6 +294,8 @@ def test_ad_rnea(
         order=AD_ORDER,
         modes=["rev", "fwd"],
         eps=ε,
+        atol=ATOL,
+        rtol=RTOL,
     )
 
 
@@ -320,6 +328,8 @@ def test_ad_crba(
         order=AD_ORDER,
         modes=["rev", "fwd"],
         eps=ε,
+        atol=ATOL,
+        rtol=RTOL,
     )
 
 
@@ -409,6 +419,8 @@ def test_ad_fk(
         order=AD_ORDER,
         modes=["rev", "fwd"],
         eps=ε,
+        atol=ATOL,
+        rtol=RTOL,
     )
 
 
@@ -448,6 +460,8 @@ def test_ad_jacobian(
         order=AD_ORDER,
         modes=["rev", "fwd"],
         eps=ε,
+        atol=ATOL,
+        rtol=RTOL,
     )
 
 
@@ -498,8 +512,9 @@ def test_ad_soft_contacts(
         order=AD_ORDER,
         modes=["rev", "fwd"],
         eps=ε,
-        # On GPU, the tolerance needs to be increased.
-        rtol=0.02 if "gpu" in {d.platform for d in p.devices()} else None,
+        atol=ATOL,
+        # On GPU or in 32-bit mode, the tolerance needs to be increased.
+        rtol=0.02 if "gpu" in {d.platform for d in p.devices()} else RTOL,
     )
 
 
@@ -577,6 +592,8 @@ def test_ad_integration(
         order=AD_ORDER,
         modes=["fwd", "rev"],
         eps=ε,
+        atol=ATOL,
+        rtol=RTOL,
     )
 
 
